@@ -1,0 +1,15 @@
+{
+  "name": "nodebb-plugin-wechat-official-account",
+  "version": "1.0.0",
+  "description": "integrate nodebb into wechat ecosysyem",
+  "dependencies": {
+    "restler":"kmshi/restler.git#master",
+    "wechat-api": "",
+    "wechat": ""
+  },
+  "devDependencies": {
+  },
+  "nbbpm": {
+    "compatibility": "^0.7.0"
+  }
+}

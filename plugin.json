@@ -1,0 +1,11 @@
+{
+    "id": "nodebb-plugin-wechat-official-account",
+    "name": "wechat official account",
+    "description": "integrate nodebb into wechat ecosysyem",
+    "library": "./library.js",
+    "hooks": [
+        {
+            "hook": "static:app.load", "method": "load"
+        }
+    ]
+}
