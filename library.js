@@ -34,13 +34,14 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	//so he can login as same user from different entries,like website, mobile app, gongzonghao and etc.
 }
 
-function redirectWithCookieMaxAge(req, res){
+function redirectWithCookieMaxAge(req, res,next){
 	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
 	req.session.cookie.maxAge = duration;
 	req.session.cookie.expires = new Date(Date.now() + duration);
-	var index = req.originalUrl.indexOf("code=");
-	index = index==-1?req.originalUrl.length:index;
-	res.redirect(wechatConfig.secure_domain+req.originalUrl.slice(0,index));
+	//var index = req.originalUrl.indexOf("code=");
+	//index = index==-1?req.originalUrl.length:index;
+	//res.redirect(wechatConfig.secure_domain+req.originalUrl.slice(0,index));
+	next();
 }
 
 function wechatAuth(req, res, next) {
@@ -60,7 +61,7 @@ function wechatAuth(req, res, next) {
 				if (err) return next(err);
 				if (uid){
 					req.user = {uid:uid};
-					redirectWithCookieMaxAge(req,res);
+					redirectWithCookieMaxAge(req,res,next);
 				}else{
 					redirect_weixin_oauth(req,res,false);
 				}
@@ -73,20 +74,22 @@ function wechatAuth(req, res, next) {
 				if (userInfo.errcode) {
 					return next(userInfo);
 				}
-				user.create({username:userInfo.nickname},function(err, uid){
+				user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
 					if (err) return next(err);
 					req.user = {uid:uid};
 					var data = {
 						country:userInfo.country,
 						province:userInfo.province,
 						city:userInfo.city,
-						openid:authData.openid,
+						openid:userInfo.openid,
+						unionid:userInfo.unionid,
+						sex:userInfo.sex,
 						uploadedpicture: userInfo.headimgurl,
 						picture: userInfo.headimgurl
 					};
-					User.setUserFields(uid,data);
-					db.setObjectField('openid:uid', authData.openid, uid);
-					redirectWithCookieMaxAge(req,res);
+					user.setUserFields(uid,data);
+					db.setObjectField('openid:uid', userInfo.openid, uid);
+					redirectWithCookieMaxAge(req,res,next);
 				});
 			}).on("error",function(err){
 				next(err);
