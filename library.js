@@ -34,19 +34,15 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	//so he can login as same user from different entries,like website, mobile app, gongzonghao and etc.
 }
 
-function redirectWithCookieMaxAge(req, res,next){
+function setCookieMaxAge(req){
 	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
 	req.session.cookie.maxAge = duration;
 	req.session.cookie.expires = new Date(Date.now() + duration);
-	//var index = req.originalUrl.indexOf("code=");
-	//index = index==-1?req.originalUrl.length:index;
-	//res.redirect(wechatConfig.secure_domain+req.originalUrl.slice(0,index));
-	next();
 }
 
 function wechatAuth(req, res, next) {
-	if (req.headers['user-agent'].indexOf('MicroMessenger')===-1 || req.user) return next();
-	if (!req.query.code) return redirect_weixin_oauth(req,res,true);
+	if (req.headers['user-agent'].indexOf('MicroMessenger')===-1 || req.isAuthenticated()) return next();
+	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
 	var str = querystring.stringify({appid:wechatConfig.wechat_appid,secret:wechatConfig.wechat_appsecret,code:req.query.code,grant_type:"authorization_code"});
@@ -60,8 +56,8 @@ function wechatAuth(req, res, next) {
 			db.getObjectField('openid:uid', authData.openid, function(err, uid) {
 				if (err) return next(err);
 				if (uid){
-					req.user = {uid:uid};
-					redirectWithCookieMaxAge(req,res,next);
+					setCookieMaxAge(req);
+					req.login({uid: uid}, next);
 				}else{
 					redirect_weixin_oauth(req,res,false);
 				}
@@ -76,7 +72,6 @@ function wechatAuth(req, res, next) {
 				}
 				user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
 					if (err) return next(err);
-					req.user = {uid:uid};
 					var data = {
 						country:userInfo.country,
 						province:userInfo.province,
@@ -89,7 +84,8 @@ function wechatAuth(req, res, next) {
 					};
 					user.setUserFields(uid,data);
 					db.setObjectField('openid:uid', userInfo.openid, uid);
-					redirectWithCookieMaxAge(req,res,next);
+					setCookieMaxAge(req);
+					req.login({uid: uid}, next);
 				});
 			}).on("error",function(err){
 				next(err);
@@ -119,7 +115,15 @@ plugin.load = function(params, callback) {
 	router.post('/notify/alarmNotify',alarmNotify);
 
 	router.use('/',wechatAuth);
-
+/*	router.use(function(req,res,next){
+		console.log(req.originalUrl);
+		console.log("res.locals=");
+		console.dir(res.locals);
+		console.log("isAuthenticated="+req.isAuthenticated());
+		console.log("login="+req.login);
+		next();
+	});
+*/
 	callback();
 };
 
