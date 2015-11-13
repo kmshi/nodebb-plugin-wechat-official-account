@@ -17,10 +17,8 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
 	var state = (onlyOpenId==true?"0":"1");
 	var path = "https://open.weixin.qq.com/connect/oauth2/authorize?";
-	var index = req.originalUrl.indexOf("code=");
-	index = index==-1?req.originalUrl.length:index;
 	var str = querystring.stringify({appid:nconf.get("wechat:appid"),
-		redirect_uri:nconf.get("wechat:secure_domain")+req.originalUrl.slice(0,index),
+		redirect_uri:nconf.get("wechat:secure_domain")+req.originalUrl.split("?")[0],
 		response_type:"code",
 		scope:scope});
 
@@ -79,10 +77,13 @@ function wechatAuth(req, res, next) {
 						uploadedpicture: userInfo.headimgurl,
 						picture: userInfo.headimgurl
 					};
-					user.setUserFields(uid,data);
 					db.setObjectField('openid:uid', userInfo.openid, uid);
-					setCookieMaxAge(req);
-					req.login({uid: uid}, next);
+					user.setUserFields(uid,data,function(){
+						setCookieMaxAge(req);
+						req.login({uid: uid}, function(){
+							res.redirect(nconf.get("wechat:secure_domain")+req.originalUrl.split("?")[0]);
+						});
+					});
 				});
 			}).on("error",function(err){
 				next(err);
