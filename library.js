@@ -9,7 +9,6 @@ var plugin = {},
 	meta = module.parent.require('./meta'),
 	user = module.parent.require('./user'),
 	db = module.parent.require('./database'),
-	wechatConfig = module.require('./wechatConfig'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
 	nconf = module.parent.require('nconf');
@@ -20,8 +19,8 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	var path = "https://open.weixin.qq.com/connect/oauth2/authorize?";
 	var index = req.originalUrl.indexOf("code=");
 	index = index==-1?req.originalUrl.length:index;
-	var str = querystring.stringify({appid:wechatConfig.wechat_appid,
-		redirect_uri:wechatConfig.secure_domain+req.originalUrl.slice(0,index),
+	var str = querystring.stringify({appid:nconf.get("wechat:appid"),
+		redirect_uri:nconf.get("wechat:secure_domain")+req.originalUrl.slice(0,index),
 		response_type:"code",
 		scope:scope});
 
@@ -30,8 +29,6 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	winston.info("redirect:"+path+str+"#wechat_redirect");
 	res.redirect(path+str+"#wechat_redirect");
 	//for website, use "https://open.weixin.qq.com/connect/qrconnect?" and "snsapi_login" scope.
-	//authData use unionid to replace openid, and use openid_host,openid_player,openid_site to store openid data
-	//so he can login as same user from different entries,like website, mobile app, gongzonghao and etc.
 }
 
 function setCookieMaxAge(req){
@@ -45,7 +42,7 @@ function wechatAuth(req, res, next) {
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
-	var str = querystring.stringify({appid:wechatConfig.wechat_appid,secret:wechatConfig.wechat_appsecret,code:req.query.code,grant_type:"authorization_code"});
+	var str = querystring.stringify({appid:nconf.get("wechat:appid"),secret:nconf.get("wechat:appsecret"),code:req.query.code,grant_type:"authorization_code"});
 
 	rest.json(path+str,{}).on("success",function(authData) {
 		authData = JSON.parse(authData);
