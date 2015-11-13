@@ -6,6 +6,9 @@
     "hooks": [
         {
             "hook": "static:app.load", "method": "load"
+        },
+        {
+            "hook": "filter:user.delete", "method": "userDelete"
         }
     ]
 }

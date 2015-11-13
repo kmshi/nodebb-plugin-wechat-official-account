@@ -125,4 +125,15 @@ plugin.load = function(params, callback) {
 	callback();
 };
 
+plugin.userDelete = function(uid,callback){
+	callback = callback || function() {};
+	db.getObject('openid:uid',function(err,obj){
+		if (err) return callback(err);
+		for (var openid in obj){
+			if (obj[openid]===uid) return db.deleteObjectField('openid:uid', openid, callback);
+		}
+		callback();
+	});
+}
+
 module.exports = plugin;
