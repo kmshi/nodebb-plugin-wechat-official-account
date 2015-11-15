@@ -11,7 +11,25 @@ var plugin = {},
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
+	passport = module.parent.require('passport'),
+	passportWechat = require('passport-wechat').Strategy,
 	nconf = module.parent.require('nconf');
+
+var constantsWeb = Object.freeze({
+	'name': 'wechatweb',
+	'admin': {
+		'route': '/plugins/sso-wechatweb',
+		'icon': 'fa-weixin'
+	}
+});
+
+var constantsApp = Object.freeze({
+	'name': 'wechatapp',
+	'admin': {
+		'route': '/plugins/sso-wechatapp',
+		'icon': 'fa-weixin'
+	}
+});
 
 function redirect_weixin_oauth(req,res,onlyOpenId){
 	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
@@ -47,8 +65,9 @@ function wechatAuth(req, res, next) {
 		if (authData.errcode) {
 			return next(authData);
 		}
+		var unionid = authData.unionid || authData.openid;
 		if (req.query.state==="0"){
-			db.getObjectField('openid:uid', authData.openid, function(err, uid) {
+			db.getObjectField('unionid:uid', unionid, function(err, uid) {
 				if (err) return next(err);
 				if (uid){
 					setCookieMaxAge(req);
@@ -65,11 +84,13 @@ function wechatAuth(req, res, next) {
 				if (userInfo.errcode) {
 					return next(userInfo);
 				}
+				var unionid = userInfo.unionid || userInfo.openid;
 				user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
 					if (err) return next(err);
 					var data = {
 						country:userInfo.country,
 						province:userInfo.province,
+						fullname:userInfo.nickname,
 						city:userInfo.city,
 						openid:userInfo.openid,
 						unionid:userInfo.unionid,
@@ -77,7 +98,7 @@ function wechatAuth(req, res, next) {
 						uploadedpicture: userInfo.headimgurl,
 						picture: userInfo.headimgurl
 					};
-					db.setObjectField('openid:uid', userInfo.openid, uid);
+					db.setObjectField('unionid:uid', unionid, uid);
 					user.setUserFields(uid,data,function(){
 						setCookieMaxAge(req);
 						req.login({uid: uid}, function(){
@@ -94,7 +115,41 @@ function wechatAuth(req, res, next) {
 	});
 }
 
+function login(userInfo,isWeb,callback){
+	var unionid = userInfo.unionid || userInfo.openid;
+	db.getObjectField('unionid:uid', unionid, function(err, uid) {
+		if (err) return next(err);
+		if (uid){
+			if (isWeb){
+				callback(null,{uid: uid});
+			}else{
+				user.setUserFields(uid,{openid:userInfo.openid},function(){
+					callback(null,{uid: uid});
+				});
+			}
 
+		}else{
+			user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
+				if (err) return next(err);
+				var data = {
+					country:userInfo.country,
+					province:userInfo.province,
+					fullname:userInfo.nickname,
+					city:userInfo.city,
+					unionid:unionid,
+					sex:userInfo.sex,
+					uploadedpicture: userInfo.headimgurl,
+					picture: userInfo.headimgurl
+				};
+				if (!isWeb){data.openid = userInfo.openid;}
+				db.setObjectField('unionid:uid', unionid, uid);
+				user.setUserFields(uid,data,function(){
+					callback(null,{uid: uid});
+				});
+			});
+		}
+	});
+}
 
 
 function paymentResultNotify(req, res, next) {
@@ -112,16 +167,7 @@ plugin.load = function(params, callback) {
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
 
-	router.use('/',wechatAuth);
-/*	router.use(function(req,res,next){
-		console.log(req.originalUrl);
-		console.log("res.locals=");
-		console.dir(res.locals);
-		console.log("isAuthenticated="+req.isAuthenticated());
-		console.log("login="+req.login);
-		next();
-	});
-*/
+	//router.use('/',wechatAuth);
 	callback();
 };
 
@@ -134,6 +180,92 @@ plugin.userDelete = function(uid,callback){
 		}
 		callback();
 	});
-}
+};
+
+plugin.getStrategy = function(strategies, callback){
+	passport.use(
+		"wechatapp",
+		new passportWechat({
+			appID: nconf.get("wechat:appid"),
+			appSecret:nconf.get("wechat:appsecret"),
+			client:'wechat',
+			callbackURL: nconf.get('url') + '/auth/wechatapp/callback',
+			scope: "snsapi_userinfo",
+			state:1
+		},
+		function(accessToken, refreshToken, profile, done) {
+			login(profile,false,done);
+		})
+	);
+	strategies.push({
+		name: 'wechatapp',
+		url: '/auth/wechatapp',
+		callbackURL: '/auth/wechatapp/callback',
+		icon: constantsApp.admin.icon
+	});
+
+	passport.use(
+		"wechatweb",
+		new passportWechat({
+				appID: plugin.settings.app_id,
+				appSecret: plugin.settings.secret,
+				client:'web',
+				callbackURL: nconf.get('url') + '/auth/wechatweb/callback',
+				scope: "snsapi_login",
+				state:1
+			},
+			function(accessToken, refreshToken, profile, done) {
+				login(profile,true,done);
+			})
+	);
+	strategies.push({
+		name: 'wechatweb',
+		url: '/auth/wechatweb',
+		callbackURL: '/auth/wechatweb/callback',
+		icon: constantsApp.admin.icon
+	});
+	callback(null, strategies);
+};
+
+plugin.getAssociation = function(data, callback){
+	user.getUserField(data.uid, 'unionid', function(err, unionid) {
+		if (err) {
+			return callback(err, data);
+		}
+
+		if (unionid) {
+			data.associations.push({
+				associated: true,
+				url: nconf.get('url'),//TODO
+				name: constantsWeb.name,
+				icon: constantsWeb.admin.icon
+			});
+		} else {
+			data.associations.push({
+				associated: false,
+				url: nconf.get('url') + '/auth/wechatweb',
+				name: constantsWeb.name,
+				icon: constantsWeb.admin.icon
+			});
+		}
+
+		callback(null, data);
+	})
+};
+
+plugin.addMenuItem = function(custom_header, callback) {
+	custom_header.authentication.push({
+		'route': constantsWeb.admin.route,
+		'icon': constantsWeb.admin.icon,
+		'name': constantsWeb.name
+	});
+	custom_header.authentication.push({
+		'route': constantsApp.admin.route,
+		'icon': constantsApp.admin.icon,
+		'name': constantsApp.name
+	});
+
+	callback(null, custom_header);
+};
 
 module.exports = plugin;

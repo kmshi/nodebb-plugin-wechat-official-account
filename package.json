@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "integrate nodebb into wechat ecosysyem",
   "dependencies": {
+    "passport-wechat":"kmshi/passport-wechat#master",
     "restler":"kmshi/restler.git#master",
     "wechat-api": "",
     "wechat": ""
