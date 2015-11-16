@@ -54,7 +54,7 @@ function setCookieMaxAge(req){
 }
 
 function wechatAuth(req, res, next) {
-	if (req.headers['user-agent'].indexOf('MicroMessenger')===-1 || req.isAuthenticated()) return next();
+	if (req.headers['user-agent'].indexOf('MicroMessenger')===-1 || req.isAuthenticated() || req.session.wechatVerified) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
@@ -63,90 +63,84 @@ function wechatAuth(req, res, next) {
 	rest.json(path+str,{}).on("success",function(authData) {
 		authData = JSON.parse(authData);
 		if (authData.errcode) {
-			return next(authData);
+			//ignore the error
+			req.session.wechatVerified = 1;
+			return next();
 		}
-		var unionid = authData.unionid || authData.openid;
-		if (req.query.state==="0"){
-			db.getObjectField('unionid:uid', unionid, function(err, uid) {
-				if (err) return next(err);
-				if (uid){
-					setCookieMaxAge(req);
-					req.login({uid: uid}, next);
-				}else{
-					redirect_weixin_oauth(req,res,false);
-				}
-			});
-		}else{
-			path = "https://api.weixin.qq.com/sns/userinfo?";
-			str = querystring.stringify({access_token:authData.access_token,openid:authData.openid,lang:"zh_CN"});
-			rest.json(path+str,{}).on("success",function(userInfo) {
-				userInfo = JSON.parse(userInfo);
-				if (userInfo.errcode) {
-					return next(userInfo);
-				}
-				var unionid = userInfo.unionid || userInfo.openid;
-				user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
-					if (err) return next(err);
-					var data = {
-						country:userInfo.country,
-						province:userInfo.province,
-						fullname:userInfo.nickname,
-						city:userInfo.city,
-						openid:userInfo.openid,
-						unionid:userInfo.unionid,
-						sex:userInfo.sex,
-						uploadedpicture: userInfo.headimgurl,
-						picture: userInfo.headimgurl
-					};
-					db.setObjectField('unionid:uid', unionid, uid);
-					user.setUserFields(uid,data,function(){
-						setCookieMaxAge(req);
-						req.login({uid: uid}, function(){
-							res.redirect(nconf.get("wechat:secure_domain")+req.originalUrl.split("?")[0]);
-						});
-					});
-				});
-			}).on("error",function(err){
-				next(err);
-			});
-		}
+		db.getObjectField('openid:uid', authData.openid, function(err, uid) {
+			if (err) {
+				//ignore the error
+				req.session.wechatVerified = 1;
+				return next();
+			}
+			if (uid){
+				//setCookieMaxAge(req);
+				req.login({uid: uid}, next);
+			}else{
+				req.session.wechatVerified = 1;
+				next();
+			}
+		});
 	}).on("error",function(err){
-		next(err);
+		//ignore the error
+		req.session.wechatVerified = 1;
+		next();
 	});
 }
 
 function login(userInfo,isWeb,callback){
-	var unionid = userInfo.unionid || userInfo.openid;
-	db.getObjectField('unionid:uid', unionid, function(err, uid) {
-		if (err) return next(err);
+	var data = {
+		country:userInfo.country,
+		province:userInfo.province,
+		fullname:userInfo.nickname,
+		city:userInfo.city,
+		//unionid:userInfo.unionid,
+		sex:userInfo.sex,
+		uploadedpicture: userInfo.headimgurl,
+		picture: userInfo.headimgurl
+	};
+	if (userInfo.webopenid){
+		data.webopenid = userInfo.webopenid;
+	}else{
+		data.openid = userInfo.openid;
+	}
+
+	db.getObjectField('openid:uid', userInfo.webopenid||userInfo.openid, function(err, uid) {
+		if (err) return callback(err);
 		if (uid){
-			if (isWeb){
-				callback(null,{uid: uid});
+			if(userInfo.unionid) db.setObjectField('unionid:uid', userInfo.unionid, uid);
+			callback(null,{uid: uid});
+		}else{
+			if(userInfo.unionid){
+				db.getObjectField('unionid:uid', userInfo.unionid, function(err, uid) {
+					if (err) return callback(err);
+					if (uid){
+						db.setObjectField('openid:uid', userInfo.webopenid||userInfo.openid, uid);
+						callback(null,{uid: uid});
+					}else{
+						user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
+							if (err) return callback(err);
+							data.unionid = userInfo.unionid;
+							db.setObjectField('unionid:uid', userInfo.unionid, uid);
+							db.setObjectField('openid:uid', userInfo.webopenid||userInfo.openid, uid);
+							user.setUserFields(uid,data,function(){
+								callback(null,{uid: uid});
+							});
+						});
+					}
+				});
 			}else{
-				user.setUserFields(uid,{openid:userInfo.openid},function(){
-					callback(null,{uid: uid});
+				user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
+					if (err) return callback(err);
+					//data.unionid = userInfo.unionid;
+					//db.setObjectField('unionid:uid', userInfo.unionid, uid);
+					db.setObjectField('openid:uid', userInfo.webopenid||userInfo.openid, uid);
+					user.setUserFields(uid,data,function(){
+						callback(null,{uid: uid});
+					});
 				});
 			}
 
-		}else{
-			user.create({username:userInfo.nickname.replace(/[^'"\s\-.*0-9\u00BF-\u1FFF\u2C00-\uD7FF\w]/g,'')},function(err, uid){
-				if (err) return next(err);
-				var data = {
-					country:userInfo.country,
-					province:userInfo.province,
-					fullname:userInfo.nickname,
-					city:userInfo.city,
-					unionid:unionid,
-					sex:userInfo.sex,
-					uploadedpicture: userInfo.headimgurl,
-					picture: userInfo.headimgurl
-				};
-				if (!isWeb){data.openid = userInfo.openid;}
-				db.setObjectField('unionid:uid', unionid, uid);
-				user.setUserFields(uid,data,function(){
-					callback(null,{uid: uid});
-				});
-			});
 		}
 	});
 }
@@ -167,7 +161,7 @@ plugin.load = function(params, callback) {
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
 
-	//router.use('/',wechatAuth);
+	router.use('/',wechatAuth);
 	callback();
 };
 
@@ -176,9 +170,15 @@ plugin.userDelete = function(uid,callback){
 	db.getObject('openid:uid',function(err,obj){
 		if (err) return callback(err);
 		for (var openid in obj){
-			if (obj[openid]===uid) return db.deleteObjectField('openid:uid', openid, callback);
+			if (obj[openid]===uid) db.deleteObjectField('openid:uid', openid);
 		}
-		callback();
+		db.getObject('unionid:uid',function(err,obj){
+			if (err) return callback(err);
+			for (var unionid in obj){
+				if (obj[unionid]===uid) db.deleteObjectField('unionid:uid', unionid);
+			}
+			callback();
+		});
 	});
 };
 
@@ -207,14 +207,15 @@ plugin.getStrategy = function(strategies, callback){
 	passport.use(
 		"wechatweb",
 		new passportWechat({
-				appID: plugin.settings.app_id,
-				appSecret: plugin.settings.secret,
+				appID: nconf.get("wechatweb:appid"),
+				appSecret: nconf.get("wechatweb:appsecret"),
 				client:'web',
 				callbackURL: nconf.get('url') + '/auth/wechatweb/callback',
 				scope: "snsapi_login",
 				state:1
 			},
 			function(accessToken, refreshToken, profile, done) {
+				profile.webopenid = profile.openid;
 				login(profile,true,done);
 			})
 	);
@@ -228,12 +229,12 @@ plugin.getStrategy = function(strategies, callback){
 };
 
 plugin.getAssociation = function(data, callback){
-	user.getUserField(data.uid, 'unionid', function(err, unionid) {
+	user.getUserField(data.uid, 'webopenid', function(err, webopenid) {
 		if (err) {
 			return callback(err, data);
 		}
 
-		if (unionid) {
+		if (webopenid) {
 			data.associations.push({
 				associated: true,
 				url: nconf.get('url'),//TODO
@@ -254,16 +255,16 @@ plugin.getAssociation = function(data, callback){
 };
 
 plugin.addMenuItem = function(custom_header, callback) {
-	custom_header.authentication.push({
-		'route': constantsWeb.admin.route,
-		'icon': constantsWeb.admin.icon,
-		'name': constantsWeb.name
-	});
-	custom_header.authentication.push({
-		'route': constantsApp.admin.route,
-		'icon': constantsApp.admin.icon,
-		'name': constantsApp.name
-	});
+	//custom_header.authentication.push({
+	//	'route': constantsWeb.admin.route,
+	//	'icon': constantsWeb.admin.icon,
+	//	'name': constantsWeb.name
+	//});
+	//custom_header.authentication.push({
+	//	'route': constantsApp.admin.route,
+	//	'icon': constantsApp.admin.icon,
+	//	'name': constantsApp.name
+	//});
 
 	callback(null, custom_header);
 };
