@@ -11,6 +11,7 @@ var plugin = {},
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
+	API = require('wechat-api'),
 	passport = module.parent.require('passport'),
 	passportWechat = require('passport-wechat').Strategy,
 	nconf = module.parent.require('nconf');
@@ -30,6 +31,9 @@ var constantsApp = Object.freeze({
 		'icon': 'fa-weixin'
 	}
 });
+
+
+var wechatapi = new API(nconf.get("wechat:appid"),nconf.get("wechat:appsecret"));
 
 function redirect_weixin_oauth(req,res,onlyOpenId){
 	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
@@ -154,12 +158,33 @@ function alarmNotify(req, res, next) {
 
 }
 
+function wechatJSConfig(req,res){
+	var url = req.query.url;
+	if (url){
+		wechatapi.getLatestToken(function(err,result){
+			if(err){
+				return res.status(500).json(err);
+			}
+			wechatapi.getJsConfig({url: url},function(err,data){
+				if(err){
+					return res.status(500).json(err);
+				}
+				data.url = url;
+				res.json(data);
+			});
+		});
+	}else{
+		res.status(400).json({ error: 'No url parameter' });
+	}
+}
+
 plugin.load = function(params, callback) {
 	var router = params.router,
 		middleware = params.middleware;
 
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
+	router.get('/api/wechatJSConfig',wechatJSConfig);
 
 	router.use('/',wechatAuth);
 	callback();
