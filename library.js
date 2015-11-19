@@ -25,9 +25,9 @@ var constantsWeb = Object.freeze({
 });
 
 var constantsApp = Object.freeze({
-	'name': 'wechatapp',
+	'name': 'wechat',
 	'admin': {
-		'route': '/plugins/sso-wechatapp',
+		'route': '/plugins/sso-wechat',
 		'icon': 'fa-weixin'
 	}
 });
@@ -58,7 +58,7 @@ function setCookieMaxAge(req){
 }
 
 function wechatAuth(req, res, next) {
-	if (req.headers['user-agent'].indexOf('MicroMessenger')===-1 || req.isAuthenticated() || req.session.wechatVerified) return next();
+	if (req.headers['user-agent'].toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated() || req.session.wechatVerified) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
@@ -93,6 +93,7 @@ function wechatAuth(req, res, next) {
 }
 
 function login(userInfo,isWeb,callback){
+	//TODO:headimgurl need be saved
 	var data = {
 		country:userInfo.country,
 		province:userInfo.province,
@@ -186,7 +187,9 @@ plugin.load = function(params, callback) {
 	router.post('/notify/alarmNotify',alarmNotify);
 	router.get('/api/wechatJSConfig',wechatJSConfig);
 
-	router.use('/',wechatAuth);
+	if(nconf.get("wechat:allowAuth")){
+		router.use('/',wechatAuth);
+	}
 	callback();
 };
 
@@ -208,58 +211,63 @@ plugin.userDelete = function(uid,callback){
 };
 
 plugin.getStrategy = function(strategies, callback){
-	passport.use(
-		"wechatapp",
-		new passportWechat({
-			appID: nconf.get("wechat:appid"),
-			appSecret:nconf.get("wechat:appsecret"),
-			client:'wechat',
-			callbackURL: nconf.get('url') + '/auth/wechatapp/callback',
-			scope: "snsapi_userinfo",
-			state:1
-		},
-		function(accessToken, refreshToken, profile, done) {
-			login(profile,false,done);
-		})
-	);
-	strategies.push({
-		name: 'wechatapp',
-		url: '/auth/wechatapp',
-		callbackURL: '/auth/wechatapp/callback',
-		icon: constantsApp.admin.icon
-	});
+	if(nconf.get("wechat:allowAuth")){
+		passport.use(
+			"wechat",
+			new passportWechat({
+					appID: nconf.get("wechat:appid"),
+					appSecret:nconf.get("wechat:appsecret"),
+					client:'wechat',
+					callbackURL: nconf.get('url') + '/auth/wechat/callback',
+					scope: "snsapi_userinfo",
+					state:1
+				},
+				function(accessToken, refreshToken, profile, done) {
+					login(profile,false,done);
+				})
+		);
+		strategies.push({
+			name: 'wechat',
+			url: '/auth/wechat',
+			callbackURL: '/auth/wechat/callback',
+			icon: constantsApp.admin.icon
+		});
+	}
 
-	passport.use(
-		"wechatweb",
-		new passportWechat({
-				appID: nconf.get("wechatweb:appid"),
-				appSecret: nconf.get("wechatweb:appsecret"),
-				client:'web',
-				callbackURL: nconf.get('url') + '/auth/wechatweb/callback',
-				scope: "snsapi_login",
-				state:1
-			},
-			function(accessToken, refreshToken, profile, done) {
-				profile.webopenid = profile.openid;
-				login(profile,true,done);
-			})
-	);
-	strategies.push({
-		name: 'wechatweb',
-		url: '/auth/wechatweb',
-		callbackURL: '/auth/wechatweb/callback',
-		icon: constantsApp.admin.icon
-	});
+	if(nconf.get("wechatweb")){
+		passport.use(
+			"wechatweb",
+			new passportWechat({
+					appID: nconf.get("wechatweb:appid"),
+					appSecret: nconf.get("wechatweb:appsecret"),
+					client:'web',
+					callbackURL: nconf.get('url') + '/auth/wechatweb/callback',
+					scope: "snsapi_login",
+					state:1
+				},
+				function(accessToken, refreshToken, profile, done) {
+					profile.webopenid = profile.openid;
+					login(profile,true,done);
+				})
+		);
+		strategies.push({
+			name: 'wechatweb',
+			url: '/auth/wechatweb',
+			callbackURL: '/auth/wechatweb/callback',
+			icon: constantsApp.admin.icon
+		});
+	}
+
 	callback(null, strategies);
 };
 
 plugin.getAssociation = function(data, callback){
-	user.getUserField(data.uid, 'webopenid', function(err, webopenid) {
+	user.getUserFields(data.uid, ['webopenid','openid'], function(err, user) {
 		if (err) {
 			return callback(err, data);
 		}
 
-		if (webopenid) {
+		if (user.webopenid) {
 			data.associations.push({
 				associated: true,
 				url: nconf.get('url'),//TODO
@@ -272,6 +280,22 @@ plugin.getAssociation = function(data, callback){
 				url: nconf.get('url') + '/auth/wechatweb',
 				name: constantsWeb.name,
 				icon: constantsWeb.admin.icon
+			});
+		}
+
+		if (user.openid) {
+			data.associations.push({
+				associated: true,
+				url: nconf.get('url'),//TODO
+				name: constantsApp.name,
+				icon: constantsApp.admin.icon
+			});
+		} else {
+			data.associations.push({
+				associated: false,
+				url: nconf.get('url') + '/auth/wechat',
+				name: constantsApp.name,
+				icon: constantsApp.admin.icon
 			});
 		}
 

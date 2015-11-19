@@ -9,5 +9,8 @@
         { "hook": "filter:auth.init", "method": "getStrategy" },
         { "hook": "filter:auth.list", "method": "getAssociation" },
         { "hook": "filter:admin.header.build", "method": "addMenuItem" }
+    ],
+    "scripts": [
+        "static/wxJSSDK.js"
     ]
 }
