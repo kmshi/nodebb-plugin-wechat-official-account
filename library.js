@@ -12,6 +12,7 @@ var plugin = {},
     querystring = module.require("querystring"),
     rest = module.require('restler'),
 	API = require('wechat-api'),
+	wechat = require('wechat'),
 	passport = module.parent.require('passport'),
 	passportWechat = require('passport-wechat').Strategy,
 	nconf = module.parent.require('nconf');
@@ -93,7 +94,7 @@ function wechatAuth(req, res, next) {
 }
 
 function login(userInfo,isWeb,callback){
-	//TODO:headimgurl need be saved
+	//TODO:headimgurl need be saved to leancloud/qiniu
 	var data = {
 		country:userInfo.country,
 		province:userInfo.province,
@@ -159,6 +160,36 @@ function alarmNotify(req, res, next) {
 
 }
 
+var List = wechat.List;
+
+List.add('bind', [
+	['回复{a}查看我的性别', function (info, req, res, next) {
+		res.reply('我是个妹纸哟');
+	}],
+	// 或者字符串
+	['回复{c}查看我的性取向', '这样的事情怎么好意思告诉你啦- -']
+]);
+
+List.add('category', [
+	['回复{1}发布到Blog', function (info, req, res, next) {
+		//TODO:create new topic
+		res.reply('发布到Blog');
+	}],
+	// 或者字符串
+	['回复{x}取消发布', '本次发布取消']
+]);
+
+function wechatInputHandler(req, res, next){
+	// 微信输入信息都在req.weixin上
+	var message = req.weixin;
+	//TODO: use req.wxsession to complete fast-post process,medias should be downloaded and uploaded to cloud
+	//user send a event to invoke fast-post, first check if it is binded,
+	//reply a message with link to a login page if it is not binded
+	//else reply a message to ask user enter title
+	//then reply a message to ask user enter image,video,text, and end with #
+	//finally replay a list message for user to select a category or cancel
+}
+
 function wechatJSConfig(req,res){
 	var url = req.query.url;
 	if (url){
@@ -186,6 +217,13 @@ plugin.load = function(params, callback) {
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
 	router.get('/api/wechatJSConfig',wechatJSConfig);
+
+	var config = {
+		token:nconf.get("wechat:token"),
+		appid:nconf.get("wechat:appid"),
+		encodingAESKey:nconf.get("wechat:encodingAESKey")
+	};
+	router.use('wechat',wechat(config,wechatInputHandler));
 
 	if(nconf.get("wechat:allowAuth")){
 		router.use('/',wechatAuth);
