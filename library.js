@@ -1,5 +1,11 @@
 /**
  * Created by kshi on 10/13/15.
+ * TODO List:
+ * 1.file upload plugin to leancloud/qiniu cloud
+ * 2.New Topic UI, wechat version and web version
+ * 3.Fast Post, wxsession and list wait/nowait
+ * 4.Notification
+ * 5.JS SDK Social Share
  */
 
 "use strict";
@@ -163,25 +169,63 @@ function alarmNotify(req, res, next) {
 var List = wechat.List;
 
 List.add('bind', [
-	['回复{a}查看我的性别', function (info, req, res, next) {
-		res.reply('我是个妹纸哟');
+	['快速发帖需绑定微信,请先'],
+	['回复{1}直接使用微信登录并绑定', function (info, req, res, next) {
+		res.nowait('xxx,登录并绑定成功,请输入title');
 	}],
-	// 或者字符串
-	['回复{c}查看我的性取向', '这样的事情怎么好意思告诉你啦- -']
+	['回复{2}使用其他已有帐号登录并在profile里绑定微信', function (info, req, res, next) {
+		res.nowait('我是个妹纸哟');
+	}]
 ]);
 
 List.add('category', [
+	['请选择要发布的板块'],
 	['回复{1}发布到Blog', function (info, req, res, next) {
 		//TODO:create new topic
-		res.reply('发布到Blog');
+		delete req.wxsession.fastPost;
+		res.nowait('发布到Blog');
 	}],
-	// 或者字符串
-	['回复{x}取消发布', '本次发布取消']
+	['回复{x}取消发布', function (info, req, res, next) {
+		delete req.wxsession.fastPost;
+		res.nowait('本次发布取消');
+	}]
 ]);
 
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
+	if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
+		req.wxsession.fastPost = {content:[]};
+		//check binding by message.FromUserName
+		if(!req.wxsession.fastPost._bind){
+			res.wait('bind');
+		}else{
+			res.reply('请输入title');
+		}
+	}
+	if (message.MsgType==="text"){
+		if (req.wxsession.fastPost){
+			if(!req.wxsession.fastPost._bind)res.wait('bind');
+			if (message.Content==="#"){
+				res.wait('category');
+			}
+			if (req.wxsession.fastPost.title){
+				req.wxsession.fastPost.content.push(message.Content);
+			}else{
+				req.wxsession.fastPost.title = message.Content;
+			}
+			res.reply('可继续添加图片,视频与文字,以#结束');
+		}
+	}
+	if (message.MsgType==="image"||message.MsgType==="video"||message.MsgType==="shortvideo"){
+		if (req.wxsession.fastPost){
+			if(!req.wxsession.fastPost._bind)res.wait('bind');
+			req.wxsession.fastPost.content.push(message.MediaId);
+			res.reply('可继续添加图片,视频与文字,以#结束');
+		}
+	}
+	//res.transfer2CustomerService(kfAccount);
+
 	//TODO: use req.wxsession to complete fast-post process,medias should be downloaded and uploaded to cloud
 	//user send a event to invoke fast-post, first check if it is binded,
 	//reply a message with link to a login page if it is not binded
@@ -214,15 +258,44 @@ plugin.load = function(params, callback) {
 	var router = params.router,
 		middleware = params.middleware;
 
+	if (!nconf.get("wechat")){
+		winston.info(
+			'\n===========================================================\n'+
+			'Please, add parameters for wechat in config.json\n'+
+			'"wechat": {' + '\n' +
+			'    "appid": "",' + '\n' +
+			'    "appsecret": "",' + '\n' +
+			'    "allowAuth": true,' + '\n' +
+			'    "token": ""' + '\n' +
+			'    "encodingAESKey": ""' + '\n' +
+			'    "payment_mch_id": ""' + '\n' +
+			'    "payment_api_key": ""' + '\n' +
+			'    "payment_notify_url": ""' + '\n' +
+			'    "secure_domain": ""' + '\n' +
+			'}\n'+
+			' and/or (wechat sso for web site):\n' +
+			'"wechatweb": {' + '\n' +
+			'    "appid": "",' + '\n' +
+			'    "appsecret": "",' + '\n' +
+			'}\n'+
+			'==========================================================='
+		);
+		winston.error("Unable to initialize wechat-official-account!");
+		return callback();
+	}
+
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
 	router.get('/api/wechatJSConfig',wechatJSConfig);
 
-	var config = {
-		token:nconf.get("wechat:token"),
-		appid:nconf.get("wechat:appid"),
-		encodingAESKey:nconf.get("wechat:encodingAESKey")
-	};
+	var config = nconf.get("wechat:token");
+	if (nconf.get("wechat:encodingAESKey")!==null && nconf.get("wechat:encodingAESKey")!==""){
+		config = {
+			token:nconf.get("wechat:token"),
+			appid:nconf.get("wechat:appid"),
+			encodingAESKey:nconf.get("wechat:encodingAESKey")
+		};
+	}
 	router.use('wechat',wechat(config,wechatInputHandler));
 
 	if(nconf.get("wechat:allowAuth")){
