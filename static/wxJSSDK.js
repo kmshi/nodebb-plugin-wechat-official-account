@@ -16,10 +16,10 @@ function configureWeChat(path){
 			wx.ready(function(){
 				//wx.hideOptionMenu();
 				wx.onMenuShareAppMessage({
-					title:$("meta[name='title']").attr("content"),
-					desc:$("meta[name='description']").attr("content"),
+					title:ajaxify.data.name || ajaxify.data.title || $("meta[name='title']").attr("content"),
+					desc:ajaxify.data.description || (ajaxify.data.posts && ajaxify.data.posts[0].content) || $("meta[name='description']").attr("content"),
 					link:window.location.href,
-					imgUrl:'',
+					imgUrl:($("img:not(.hide):not(.user-img)")[0] && $("img:not(.hide):not(.user-img)")[0].src)||'',
 					type:'link',
 					dataUrl:''
 				});

@@ -5,6 +5,7 @@
     "library": "./library.js",
     "hooks": [
         { "hook": "static:app.load", "method": "load" },
+        { "hook": "action:user.loggedIn", "method": "userLoggedIn" },
         { "hook": "filter:user.delete", "method": "userDelete" },
         { "hook": "filter:auth.init", "method": "getStrategy" },
         { "hook": "filter:auth.list", "method": "getAssociation" },

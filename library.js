@@ -3,7 +3,7 @@
  * TODO List:
  * 1.file upload plugin to leancloud/qiniu cloud
  * 2.New Topic UI, wechat version and web version
- * 3.Fast Post, wxsession and list wait/nowait
+ * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx
  * 4.Notification
  * 5.JS SDK Social Share
  */
@@ -254,6 +254,46 @@ function wechatJSConfig(req,res){
 	}
 }
 
+function wxBind(req,res){
+	var openid = req.query.openid;
+	if(openid) req.session._openid = openid;
+	res.redirect(nconf.get('relative_path')+"/login");
+}
+
+plugin.userLoggedIn = function(params){
+	var uid = params.uid;
+	var openid = params.req.session._openid;
+	if (openid){
+		console.info("openid:"+openid);
+		wechatapi.getLatestToken(function(err,result){
+			if(err) return;
+			wechatapi.getUser(openid,function(err,userInfo){
+				console.dir(userInfo);
+				if(err)return;
+				var data = {
+					country:userInfo.country,
+					province:userInfo.province,
+					fullname:userInfo.nickname,
+					city:userInfo.city,
+					openid:userInfo.openid,
+					sex:userInfo.sex,
+					uploadedpicture: userInfo.headimgurl,
+					picture: userInfo.headimgurl
+				};
+				if(userInfo.unionid) {
+					data.unionid = userInfo.unionid;
+					db.setObjectField('unionid:uid', userInfo.unionid, uid);
+				}
+				db.setObjectField('openid:uid', userInfo.openid, uid);
+				user.setUserFields(uid,data,function(){
+					//send out socket event so UI can alert and exit
+				});
+			});
+		});
+	}
+	delete params.req.session._openid;
+}
+
 plugin.load = function(params, callback) {
 	var router = params.router,
 		middleware = params.middleware;
@@ -287,6 +327,7 @@ plugin.load = function(params, callback) {
 	router.post('/notify/paymentResultNotify',paymentResultNotify);
 	router.post('/notify/alarmNotify',alarmNotify);
 	router.get('/api/wechatJSConfig',wechatJSConfig);
+	router.get('/wxBind',wxBind);
 
 	var config = nconf.get("wechat:token");
 	if (nconf.get("wechat:encodingAESKey")!==null && nconf.get("wechat:encodingAESKey")!==""){
