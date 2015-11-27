@@ -2,8 +2,8 @@
  * Created by kshi on 10/13/15.
  * TODO List:
  * 1.file upload plugin to leancloud/qiniu cloud
- * 2.New Topic UI, wechat version and web version
- * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx
+ * 2.New Topic UI, wechat version and web version; wechat fast login button + other login button
+ * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx --Doing
  * 4.Notification
  * 5.JS SDK Social Share
  */
@@ -65,36 +65,33 @@ function setCookieMaxAge(req){
 }
 
 function wechatAuth(req, res, next) {
-	if (req.headers['user-agent'].toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated() || req.session.wechatVerified) return next();
+	if (req.headers['user-agent'].toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated() || req.session._wechatAuthed) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
 	var str = querystring.stringify({appid:nconf.get("wechat:appid"),secret:nconf.get("wechat:appsecret"),code:req.query.code,grant_type:"authorization_code"});
+	req.session._wechatAuthed = 1;
 
 	rest.json(path+str,{}).on("success",function(authData) {
 		authData = JSON.parse(authData);
 		if (authData.errcode) {
 			//ignore the error
-			req.session.wechatVerified = 1;
 			return next();
 		}
+		req.session._openid = authData.openid;
 		db.getObjectField('openid:uid', authData.openid, function(err, uid) {
 			if (err) {
-				//ignore the error
-				req.session.wechatVerified = 1;
 				return next();
 			}
 			if (uid){
 				//setCookieMaxAge(req);
 				req.login({uid: uid}, next);
 			}else{
-				req.session.wechatVerified = 1;
 				next();
 			}
 		});
 	}).on("error",function(err){
 		//ignore the error
-		req.session.wechatVerified = 1;
 		next();
 	});
 }
@@ -170,11 +167,20 @@ var List = wechat.List;
 
 List.add('bind', [
 	['快速发帖需绑定微信,请先'],
-	['回复{1}直接使用微信登录并绑定', function (info, req, res, next) {
-		res.nowait('xxx,登录并绑定成功,请输入title');
+	['回复{1}直接使用微信登录并绑定微信', function (info, req, res, next) {
+		var openid = req.weixin.FromUserName;
+		wechatapi.getLatestToken(function(err,result){
+			if(err) return res.nowait(err);
+			wechatapi.getUser(openid,function(err,userInfo){
+				if(err)return res.nowait(err);
+				login(userInfo,false,function(){
+					res.nowait(userInfo.nickname+',绑定成功,请输入标题');
+				});
+			});
+		});
 	}],
-	['回复{2}使用其他已有帐号登录并在profile里绑定微信', function (info, req, res, next) {
-		res.nowait('我是个妹纸哟');
+	['回复{2}使用其他已有帐号登录并绑定微信', function (info, req, res, next) {
+		res.nowait(nconf.get('relative_path')+"/wxBind?openid="+req.weixin.FromUserName);
 	}]
 ]);
 
@@ -182,6 +188,7 @@ List.add('category', [
 	['请选择要发布的板块'],
 	['回复{1}发布到Blog', function (info, req, res, next) {
 		//TODO:create new topic
+		console.dir(req.wxsession.fastPost);
 		delete req.wxsession.fastPost;
 		res.nowait('发布到Blog');
 	}],
@@ -191,47 +198,52 @@ List.add('category', [
 	}]
 ]);
 
+function checkBind(openid){
+	db.getObjectField('openid:uid',openid, function(err, uid) {
+		if (err) res.reply(err);
+		if (uid){
+			req.wxsession.fastPost._bind = true;
+			res.reply('请输入标题');
+		} else{
+			res.wait('bind');
+		}
+	});
+}
+
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
 	if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
 		req.wxsession.fastPost = {content:[]};
-		//check binding by message.FromUserName
-		if(!req.wxsession.fastPost._bind){
-			res.wait('bind');
-		}else{
-			res.reply('请输入title');
-		}
+		checkBind(message.FromUserName);
 	}
 	if (message.MsgType==="text"){
 		if (req.wxsession.fastPost){
-			if(!req.wxsession.fastPost._bind)res.wait('bind');
+			if(!req.wxsession.fastPost._bind) checkBind(message.FromUserName);
 			if (message.Content==="#"){
 				res.wait('category');
 			}
 			if (req.wxsession.fastPost.title){
 				req.wxsession.fastPost.content.push(message.Content);
+				res.reply('可继续添加文字,图片与视频,以#结束内容输入');
 			}else{
 				req.wxsession.fastPost.title = message.Content;
+				res.reply('请输入内容,如文字,图片与视频,以#结束内容输入');
 			}
-			res.reply('可继续添加图片,视频与文字,以#结束');
+
 		}
 	}
 	if (message.MsgType==="image"||message.MsgType==="video"||message.MsgType==="shortvideo"){
 		if (req.wxsession.fastPost){
-			if(!req.wxsession.fastPost._bind)res.wait('bind');
-			req.wxsession.fastPost.content.push(message.MediaId);
-			res.reply('可继续添加图片,视频与文字,以#结束');
+			if(!req.wxsession.fastPost._bind) checkBind(message.FromUserName);
+			if (req.wxsession.fastPost.title) {
+				req.wxsession.fastPost.content.push(message.MediaId);
+				res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+			}
 		}
 	}
 	//res.transfer2CustomerService(kfAccount);
-
-	//TODO: use req.wxsession to complete fast-post process,medias should be downloaded and uploaded to cloud
-	//user send a event to invoke fast-post, first check if it is binded,
-	//reply a message with link to a login page if it is not binded
-	//else reply a message to ask user enter title
-	//then reply a message to ask user enter image,video,text, and end with #
-	//finally replay a list message for user to select a category or cancel
+	res.reply();
 }
 
 function wechatJSConfig(req,res){
@@ -260,38 +272,49 @@ function wxBind(req,res){
 	res.redirect(nconf.get('relative_path')+"/login");
 }
 
+function bindUser2Wechat(uid,openid,callback){
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.getUser(openid,function(err,userInfo){
+			if(err)return callback(err);
+			var data = {
+				country:userInfo.country,
+				province:userInfo.province,
+				fullname:userInfo.nickname,
+				city:userInfo.city,
+				openid:userInfo.openid,
+				sex:userInfo.sex,
+				uploadedpicture: userInfo.headimgurl,
+				picture: userInfo.headimgurl
+			};
+			if(userInfo.unionid) {
+				data.unionid = userInfo.unionid;
+				db.setObjectField('unionid:uid', userInfo.unionid, uid);
+			}
+			db.setObjectField('openid:uid', userInfo.openid, uid);
+			user.setUserFields(uid,data,callback);
+		});
+	});
+}
+
 plugin.userLoggedIn = function(params){
 	var uid = params.uid;
 	var openid = params.req.session._openid;
 	if (openid){
-		console.info("openid:"+openid);
-		wechatapi.getLatestToken(function(err,result){
-			if(err) return;
-			wechatapi.getUser(openid,function(err,userInfo){
-				console.dir(userInfo);
-				if(err)return;
-				var data = {
-					country:userInfo.country,
-					province:userInfo.province,
-					fullname:userInfo.nickname,
-					city:userInfo.city,
-					openid:userInfo.openid,
-					sex:userInfo.sex,
-					uploadedpicture: userInfo.headimgurl,
-					picture: userInfo.headimgurl
-				};
-				if(userInfo.unionid) {
-					data.unionid = userInfo.unionid;
-					db.setObjectField('unionid:uid', userInfo.unionid, uid);
-				}
-				db.setObjectField('openid:uid', userInfo.openid, uid);
-				user.setUserFields(uid,data,function(){
+		user.getUserField(uid, "openid", function(err, xopenid) {
+			if (err || xopenid) return;//if user is already assocaited
+			bindUser2Wechat(uid,openid,function(err){
+				if (!err && !req.session._wechatAuthed){
 					//send out socket event so UI can alert and exit
-				});
+					//send out wechat message
+					wechatapi.getLatestToken(function(err,result){
+						wechatapi.sendText(openid,"绑定成功,请输入标题",function(err,result){
+						});
+					});
+				}
 			});
 		});
 	}
-	delete params.req.session._openid;
 }
 
 plugin.load = function(params, callback) {
