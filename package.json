@@ -6,7 +6,7 @@
     "passport-wechat":"kmshi/passport-wechat#master",
     "restler":"kmshi/restler.git#master",
     "wechat-api": "",
-    "wechat": ""
+    "wechat": "kmshi/wechat.git#master"
   },
   "devDependencies": {
   },

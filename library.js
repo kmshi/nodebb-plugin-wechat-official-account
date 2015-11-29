@@ -14,6 +14,7 @@ var plugin = {},
 	winston = module.parent.require('winston'),
 	meta = module.parent.require('./meta'),
 	user = module.parent.require('./user'),
+	categories = module.parent.require('./categories'),
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
@@ -179,69 +180,92 @@ List.add('bind', [
 		});
 	}],
 	['回复{2}使用其他已有帐号登录并绑定微信', function (req, res, next) {
-		res.nowait(nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName);
+		res.nowait("<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>请点击打开登录页面</a>");
 	}]
 ]);
 
-List.add('category', [
-	['请选择要发布的板块'],
-	['回复{1}发布到Blog', function (req, res, next) {
-		//TODO:create new topic
-		console.dir(req.wxsession.fastPost);
-		delete req.wxsession.fastPost;
-		res.nowait('发布到Blog');
-	}],
-	['回复{x}取消发布', function (req, res, next) {
-		delete req.wxsession.fastPost;
-		res.nowait('本次发布取消');
-	}]
-]);
+function publishTopic(req, res, next) {
+	var openid = req.weixin.FromUserName;
+	//TODO:create new topic
+	console.dir(req.wxsession.fastPost);
+	delete req.wxsession.fastPost;
+	res.nowait('发布到cid:'+req.weixin.Content);
+	List.remove('category_'+openid);
+}
+
+function cancelPublish(req, res, next) {
+	var openid = req.weixin.FromUserName;
+	delete req.wxsession.fastPost;
+	res.nowait('本次发布取消');
+	List.remove('category_'+openid);
+}
+
+function showCategoryListForUser(openid,uid,callback){
+	categories.getCategoriesByPrivilege(uid, 'find', function(err,categories){
+		var items = [['请选择要发布的板块']];
+		for(var idx in categories){
+			items.push(['回复 {'+categories[idx].cid+'} 发布到'+categories[idx].name, publishTopic]);
+		}
+		items.push(['回复 {x} 取消发布', cancelPublish]);
+		List.add('category_'+openid,items);
+		callback();
+	});
+}
+
 
 
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
-	//console.dir(message.Content);
+	var openid = req.weixin.FromUserName;
+	//console.dir(message);
+	//console.dir(List.get('category_'+openid));
 
-	db.getObjectField('openid:uid',message.FromUserName, function(err, uid) {
+	db.getObjectField('openid:uid',openid, function(err, uid) {
 		if (err) return res.reply(err);
 		if (uid){
 			if (message.MsgType==="text" && req.wxsession.fastPost){
-				if (message.Content==="#"){
-					//TODO:need handle this case - ended by #
-					return res.wait('category');
+				if (message.Content.endsWith("#") && req.wxsession.fastPost.title){
+					//req.wxsession.fastPost._contentEnded = true;
+					if(message.Content.length>1) req.wxsession.fastPost.content.push(message.Content.substr(0,message.Content.length-1));
+					return showCategoryListForUser(openid,uid,function(){
+						res.wait('category_'+openid);
+					});
 				}
 				if (req.wxsession.fastPost.title){
 					req.wxsession.fastPost.content.push(message.Content);
-					res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+					return res.reply('可继续添加文字,图片与视频,以#结束内容输入');
 				}else{
 					req.wxsession.fastPost.title = message.Content;
-					res.reply('请输入内容,如文字,图片与视频,以#结束内容输入');
+					return res.reply('请输入内容,如文字,图片与视频,以#结束内容输入');
 				}
 			}else if ((message.MsgType==="image"||message.MsgType==="video"||message.MsgType==="shortvideo") && req.wxsession.fastPost){
 				if (req.wxsession.fastPost.title) {
 					req.wxsession.fastPost.content.push(message.MediaId);
-					res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+					return res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+				}else{
+					return res.reply('请输入标题');
 				}
 			}else if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
 				req.wxsession.fastPost = req.wxsession.fastPost || {content:[]};
+				//delete req.wxsession._wait;
 				if (req.wxsession.fastPost.title){
-					res.reply('请输入文字,图片与视频,以#结束内容输入');
+					return res.reply('请输入文字,图片与视频,以#结束内容输入');
 				}else{
-					res.reply('请输入标题');
+					return res.reply('请输入标题');
 				}
 			}else{
-				res.reply();
-				//res.transfer2CustomerService(kfAccount);
+				return res.reply();
+				//return res.transfer2CustomerService(kfAccount);
 			}
 		} else{
 			if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
 				req.wxsession.fastPost = {content:[]};
-				res.wait('bind');
+				return res.wait('bind');
 			}else{
 				delete req.wxsession.fastPost;
-				res.reply();
-				//res.transfer2CustomerService(kfAccount);
+				return res.reply();
+				//return res.transfer2CustomerService(kfAccount);
 			}
 		}
 	});
