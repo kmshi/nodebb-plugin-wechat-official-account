@@ -15,6 +15,7 @@ var plugin = {},
 	meta = module.parent.require('./meta'),
 	user = module.parent.require('./user'),
 	categories = module.parent.require('./categories'),
+	topics = module.parent.require('./topics'),
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
@@ -66,7 +67,7 @@ function setCookieMaxAge(req){
 }
 
 function wechatAuth(req, res, next) {
-	if (req.headers['user-agent'].toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
+	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
@@ -186,11 +187,28 @@ List.add('bind', [
 
 function publishTopic(req, res, next) {
 	var openid = req.weixin.FromUserName;
-	//TODO:create new topic
-	console.dir(req.wxsession.fastPost);
-	delete req.wxsession.fastPost;
-	res.nowait('发布到cid:'+req.weixin.Content);
-	List.remove('category_'+openid);
+	var cid = req.weixin.Content;
+	//thumb,tags
+	topics.post({
+		uid:req.wxsession.user.uid,
+		cid:cid,
+		title:req.wxsession.fastPost.title,
+		content:JSON.stringify(req.wxsession.fastPost.content)
+	},function(err,data){
+		delete req.wxsession.fastPost;
+		List.remove('category_'+openid);
+		if (err) return res.nowait('发布失败:'+err);
+		//console.dir(data);
+		res.nowait([
+			{
+				title: '成功发布到'+data.topicData.category.name,
+				description: data.topicData.title,
+				//picurl: 'http://nodeapi.cloudfoundry.com/qrcode.jpg',
+				url: nconf.get("url")+"/topic/"+data.topicData.slug
+			}
+		]);
+	});
+
 }
 
 function cancelPublish(req, res, next) {
@@ -218,42 +236,47 @@ function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
 	var openid = req.weixin.FromUserName;
-	//console.dir(message);
+	console.dir(message);
 	//console.dir(List.get('category_'+openid));
 
 	db.getObjectField('openid:uid',openid, function(err, uid) {
 		if (err) return res.reply(err);
 		if (uid){
+			req.wxsession.user = {uid:uid};
 			if (message.MsgType==="text" && req.wxsession.fastPost){
+				if (req.wxsession._wait) return res.reply('请回复合适的选项');
 				if (message.Content.endsWith("#") && req.wxsession.fastPost.title){
-					//req.wxsession.fastPost._contentEnded = true;
-					if(message.Content.length>1) req.wxsession.fastPost.content.push(message.Content.substr(0,message.Content.length-1));
+					if(message.Content.length>1) {
+						message.Content = message.Content.substr(0,message.Content.length-1)
+						req.wxsession.fastPost.content.push(message);
+					}
 					return showCategoryListForUser(openid,uid,function(){
 						res.wait('category_'+openid);
 					});
 				}
 				if (req.wxsession.fastPost.title){
-					req.wxsession.fastPost.content.push(message.Content);
-					return res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+					req.wxsession.fastPost.content.push(message);
+					return res.reply('可继续添加文字,图片,小视频,声音与位置,以#结束内容输入');
 				}else{
 					req.wxsession.fastPost.title = message.Content;
-					return res.reply('请输入内容,如文字,图片与视频,以#结束内容输入');
+					return res.reply('请输入内容,如文字,图片,小视频,声音与位置,以#结束内容输入');
 				}
-			}else if ((message.MsgType==="image"||message.MsgType==="video"||message.MsgType==="shortvideo") && req.wxsession.fastPost){
+			}else if ((message.MsgType!=="text" && message.MsgType!=="event") && req.wxsession.fastPost){
+				if (req.wxsession._wait) return res.reply('请回复合适的选项');
 				if (req.wxsession.fastPost.title) {
-					req.wxsession.fastPost.content.push(message.MediaId);
-					return res.reply('可继续添加文字,图片与视频,以#结束内容输入');
+					req.wxsession.fastPost.content.push(message);
+					return res.reply('可继续添加文字,图片,小视频,声音与位置,以#结束内容输入');
 				}else{
 					return res.reply('请输入标题');
 				}
-			}else if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
-				req.wxsession.fastPost = req.wxsession.fastPost || {content:[]};
-				//delete req.wxsession._wait;
-				if (req.wxsession.fastPost.title){
-					return res.reply('请输入文字,图片与视频,以#结束内容输入');
-				}else{
-					return res.reply('请输入标题');
-				}
+			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_POST"){
+				req.wxsession.fastPost = {content:[]};
+				delete req.wxsession._wait;
+				return res.reply('请输入标题');
+			}else if (message.MsgType==="event" && message.Event==="LOCATION"){
+				user.setUserFields(uid,{Latitude:message.Latitude,Longitude:message.Longitude},function(){
+					res.reply();
+				});
 			}else{
 				return res.reply();
 				//return res.transfer2CustomerService(kfAccount);
