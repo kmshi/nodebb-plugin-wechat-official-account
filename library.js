@@ -13,9 +13,13 @@
 var plugin = {},
 	winston = module.parent.require('winston'),
 	meta = module.parent.require('./meta'),
+	async = module.parent.require('async'),
+	S = module.parent.require('string'),
 	user = module.parent.require('./user'),
 	categories = module.parent.require('./categories'),
 	topics = module.parent.require('./topics'),
+	posts = module.parent.require('./posts'),
+	translator = module.parent.require('../public/src/modules/translator'),
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
@@ -540,6 +544,53 @@ plugin.addMenuItem = function(custom_header, callback) {
 	//});
 
 	callback(null, custom_header);
+};
+
+plugin.notificationPushed = function(params){
+	var notifObj = params.notification;
+	var uids = params.uids;
+	console.dir(notifObj);
+	async.waterfall([
+		function(next) {
+			var language = meta.config.defaultLang || 'en_GB';
+
+			notifObj.bodyLong = notifObj.bodyLong || '';
+			notifObj.bodyLong = S(notifObj.bodyLong).unescapeHTML().stripTags().unescapeHTML().s;
+			async.parallel({
+				title: function(next) {
+					translator.translate(notifObj.bodyShort, language, function(translated) {
+						next(undefined, S(translated).stripTags().s);
+					});
+				},
+				pic:async.apply(user.getUserField,notifObj.from,'picture'),
+				topicTitle: async.apply(topics.getTopicFieldByPid, 'title', notifObj.pid),
+				topicSlug: async.apply(topics.getTopicFieldByPid, 'slug', notifObj.pid)
+			}, next);
+		},
+		function(data, next) {
+			//picurl:data.pic,
+			var	payload = [
+				{
+					title:data.title || data.topicTitle,
+					description:notifObj.bodyLong,
+					url: nconf.get('url') + '/topic/' + data.topicSlug
+				}
+			];
+			if (notifObj.user) payload[0].url = nconf.get('url') + '/user/' + notifObj.user.userslug;
+			//console.dir(payload);
+			user.getMultipleUserFields(uids,['openid'],function(err,users){
+				wechatapi.getLatestToken(function(err,result){
+					users.forEach(function(user){
+						//console.dir(user);
+						if (user.openid){
+							wechatapi.sendNews(user.openid,payload,function(err,result){
+							});
+						}
+					});
+				});
+			});
+		}
+	]);
 };
 
 module.exports = plugin;
