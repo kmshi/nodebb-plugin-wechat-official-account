@@ -5,6 +5,7 @@
   "dependencies": {
     "passport-wechat":"kmshi/passport-wechat#master",
     "restler":"kmshi/restler.git#master",
+    "qiniu": "",
     "wechat-api": "",
     "wechat": "kmshi/wechat.git#master"
   },

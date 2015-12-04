@@ -23,6 +23,7 @@ var plugin = {},
 	db = module.parent.require('./database'),
     querystring = module.require("querystring"),
     rest = module.require('restler'),
+	AV = require("./avcloud"),
 	API = require('wechat-api'),
 	wechat = require('wechat'),
 	passport = module.parent.require('passport'),
@@ -45,6 +46,7 @@ var constantsApp = Object.freeze({
 	}
 });
 
+var avcloud = new AV(nconf.get("avcloud:appid"),nconf.get("avcloud:appkey"));
 
 var wechatapi = new API(nconf.get("wechat:appid"),nconf.get("wechat:appsecret"));
 
@@ -189,30 +191,108 @@ List.add('bind', [
 	}]
 ]);
 
+function uploadMediaToCloud(mediaId,callback){
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.getMedia(mediaId,function(err,data,res){
+			if(err) return callback(err);
+			//content-disposition': 'attachment; filename="zbS8yLf7lxXt1vA2cqcIoUYPPyrR1mytXA1olZgBlmndEeuNHa7eYp1Cv-u-gpOg.jpg"'
+			var filename = res.headers['content-disposition'].match(/(filename=\")(.*)(\")/)[2];
+			avcloud.uploadFile(filename,res.headers['content-type'],data,function(err,data){
+				if(err) return callback(err);
+				callback(null,data.url);
+			});
+
+		});
+	});
+}
+
+function thumbnailURL(url, width, height, quality, scaleToFit, fmt){
+	if(!width|| width<=0){
+		throw "Invalid width value."
+	}
+	quality = quality || 100;
+	scaleToFit = (scaleToFit == null) ? true: scaleToFit;
+	if(quality<=0 || quality>100){
+		throw "Invalid quality value."
+	}
+	fmt = fmt || 'png';
+	var mode = scaleToFit ? 2: 1;
+
+	if (!height) return url + '?imageView/' + mode + '/w/' + width;
+	return url + '?imageView/' + mode + '/w/' + width + '/h/' + height
+		+ '/q/' + quality + '/format/' + fmt;
+}
+
+function extractImage(message,callback){
+	//![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")
+	//callback(null,'[![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")](http://baidu.com)');
+	uploadMediaToCloud(message.MediaId,function(err,url){
+		callback(null,'![]('+url+')');
+	});
+}
+
+function extractVideo(message,callback){
+	//https://github.com/mani95lisa/nodebb-plugin-video
+	//http://jplayer.org/
+	//http://www.jwplayer.com/
+	async.parallel({
+		video:async.apply(uploadMediaToCloud,message.MediaId),
+		thumbImg:async.apply(uploadMediaToCloud,message.ThumbMediaId)
+	},function(err,results){
+		callback(null,'![]('+results.thumbImg+')'+ '[video640]'+results.video);
+	});
+}
+
+function extractVoice(message,callback){
+	uploadMediaToCloud(message.MediaId,function(err,url){
+		callback(null,'['+message.Recognition+']('+url+')');
+	});
+}
+
+function extractLink(message,callback){
+	callback(null,'[**'+message.Title+'**: '+message.Description+']('+message.Url+')');
+}
+
+function messages2Content(messages,callback){
+	async.map(messages,function(message, next){
+		if (message.MsgType==='image') return extractImage(message,next);
+		if (message.MsgType==='video'||message.MsgType==='shortvideo') return extractVideo(message,next);
+		if (message.MsgType==='voice') return extractVoice(message,next);
+		if (message.MsgType==='link') return extractLink(message,next);
+		if (message.MsgType==='text') return next(null,message.Content);
+		next(null,"Unknown message!");
+	}, function(err, results){
+		callback(null,results.join('\n'));
+	});
+}
+
 function publishTopic(req, res, next) {
 	var openid = req.weixin.FromUserName;
 	var cid = req.weixin.Content;
-	//thumb,tags
-	topics.post({
-		uid:req.wxsession.user.uid,
-		cid:cid,
-		title:req.wxsession.fastPost.title,
-		content:JSON.stringify(req.wxsession.fastPost.content)
-	},function(err,data){
-		delete req.wxsession.fastPost;
-		List.remove('category_'+openid);
+	messages2Content(req.wxsession.fastPost.content,function(err,text){
 		if (err) return res.nowait('发布失败:'+err);
-		//console.dir(data);
-		res.nowait([
-			{
-				title: '成功发布到'+data.topicData.category.name,
-				description: data.topicData.title,
-				//picurl: 'http://nodeapi.cloudfoundry.com/qrcode.jpg',
-				url: nconf.get("url")+"/topic/"+data.topicData.slug
-			}
-		]);
+		//thumb,tags
+		topics.post({
+			uid:req.wxsession.user.uid,
+			cid:cid,
+			title:req.wxsession.fastPost.title,
+			content:text
+		},function(err,data){
+			delete req.wxsession.fastPost;
+			List.remove('category_'+openid);
+			if (err) return res.nowait('发布失败:'+err);
+			//console.dir(data);
+			res.nowait([
+				{
+					title: '成功发布到'+data.topicData.category.name,
+					description: data.topicData.title,
+					//picurl: 'http://nodeapi.cloudfoundry.com/qrcode.jpg',
+					url: nconf.get("url")+"/topic/"+data.topicData.slug
+				}
+			]);
+		});
 	});
-
 }
 
 function cancelPublish(req, res, next) {
@@ -382,17 +462,31 @@ plugin.load = function(params, callback) {
 			'    "appid": "",' + '\n' +
 			'    "appsecret": "",' + '\n' +
 			'    "allowAuth": true,' + '\n' +
-			'    "token": ""' + '\n' +
-			'    "encodingAESKey": ""' + '\n' +
-			'    "payment_mch_id": ""' + '\n' +
-			'    "payment_api_key": ""' + '\n' +
-			'    "payment_notify_url": ""' + '\n' +
+			'    "token": "",' + '\n' +
+			'    "encodingAESKey": "",' + '\n' +
+			'    "payment_mch_id": "",' + '\n' +
+			'    "payment_api_key": "",' + '\n' +
+			'    "payment_notify_url": "",' + '\n' +
 			'    "secure_domain": ""' + '\n' +
 			'}\n'+
 			' and/or (wechat sso for web site):\n' +
 			'"wechatweb": {' + '\n' +
 			'    "appid": "",' + '\n' +
-			'    "appsecret": "",' + '\n' +
+			'    "appsecret": ""' + '\n' +
+			'}\n'+
+			'==========================================================='
+		);
+		winston.error("Unable to initialize wechat-official-account!");
+		return callback();
+	}
+
+	if (!nconf.get("avcloud")){
+		winston.info(
+			'\n===========================================================\n'+
+			'Please, add parameters for avcloud in config.json\n'+
+			'"avcloud": {' + '\n' +
+			'    "appid": "",' + '\n' +
+			'    "appkey": ""' + '\n' +
 			'}\n'+
 			'==========================================================='
 		);
