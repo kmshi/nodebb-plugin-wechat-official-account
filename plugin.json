@@ -9,10 +9,16 @@
         { "hook": "filter:user.delete", "method": "userDelete" },
         { "hook": "filter:auth.init", "method": "getStrategy" },
         { "hook": "filter:auth.list", "method": "getAssociation" },
+        { "hook": "filter:post.get", "method": "getPost", "callbacked": true, "priority": 6 },
+        { "hook": "filter:post.getPosts", "method": "getPosts", "callbacked": true, "priority": 6 },
         { "hook": "action:notification.pushed", "method": "notificationPushed" },
         { "hook": "filter:admin.header.build", "method": "addMenuItem" }
     ],
+    "staticDirs": {
+        "jwplayer" : "static/jwplayer"
+    },
     "scripts": [
+        "static/jwplayer/jwplayer.js",
         "static/wxJSSDK.js"
     ]
 }

@@ -236,22 +236,29 @@ function extractVideo(message,callback){
 	//https://github.com/mani95lisa/nodebb-plugin-video
 	//http://jplayer.org/
 	//http://www.jwplayer.com/
+	//[video id=() thumbnail=() url=()]
 	async.parallel({
 		video:async.apply(uploadMediaToCloud,message.MediaId),
 		thumbImg:async.apply(uploadMediaToCloud,message.ThumbMediaId)
 	},function(err,results){
-		callback(null,'![]('+results.thumbImg+')'+ '[video640]'+results.video);
+		callback(null,'[video id=('+message.MediaId+') thumbnail=('+results.thumbImg+') url=('+results.video+')]');
 	});
 }
 
 function extractVoice(message,callback){
+	//[voice id=() text=() url=()]
 	uploadMediaToCloud(message.MediaId,function(err,url){
-		callback(null,'['+message.Recognition+']('+url+')');
+		callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') url=('+url+')]');
 	});
 }
 
 function extractLink(message,callback){
 	callback(null,'[**'+message.Title+'**: '+message.Description+']('+message.Url+')');
+}
+
+function extractLocation(message,callback){
+ 	//[location locx=() locy=() name=() scale=()]
+	callback(null,'[location locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
 }
 
 function messages2Content(messages,callback){
@@ -260,6 +267,7 @@ function messages2Content(messages,callback){
 		if (message.MsgType==='video'||message.MsgType==='shortvideo') return extractVideo(message,next);
 		if (message.MsgType==='voice') return extractVoice(message,next);
 		if (message.MsgType==='link') return extractLink(message,next);
+		if (message.MsgType==='location') return extractLocation(message,next);
 		if (message.MsgType==='text') return next(null,message.Content);
 		next(null,"Unknown message!");
 	}, function(err, results){
@@ -448,7 +456,90 @@ plugin.userLoggedIn = function(params){
 			});
 		});
 	}
+};
+
+function processVideo(data){
+	var videoSetting = /(\[video )(.*)(\])/.exec(data.content);
+	if (!!videoSetting && videoSetting.length > 2) {
+		var thumbnail_attr = /(thumbnail=\()(.*?)(\))/.exec(videoSetting[2]);
+		var url_attr = /(url=\()(.*?)(\))/.exec(videoSetting[2]);
+		var id_attr = /(id=\()(.*?)(\))/.exec(videoSetting[2]);
+		if (!!thumbnail_attr && thumbnail_attr.length > 2) thumbnail_attr = S(thumbnail_attr[2]).stripTags().s;
+		if (!!url_attr && url_attr.length > 2) url_attr = S(url_attr[2]).stripTags().s;
+		if (!!id_attr && id_attr.length > 2) id_attr = S(id_attr[2]).stripTags().s;
+		var divElem = "<div id='"+id_attr+"' data-type='video' data-thumbnail='"+thumbnail_attr+"' data-url='"+url_attr+"'></div>";
+		data.content = data.content.replace(videoSetting[0],divElem);
+		return true;
+	}else{
+		return false;
+	}
 }
+
+function processVoice(data){
+	var voiceSetting = /(\[voice )(.*)(\])/.exec(data.content);
+	if (!!voiceSetting && voiceSetting.length > 2) {
+		var text_attr = /(text=\()(.*?)(\)\s)/.exec(voiceSetting[2]);
+		var url_attr = /(url=\()(.*?)(\))/.exec(voiceSetting[2]);
+		var id_attr = /(id=\()(.*?)(\))/.exec(voiceSetting[2]);
+		if (!!text_attr && text_attr.length > 2) text_attr = S(text_attr[2]).stripTags().s;
+		if (!!url_attr && url_attr.length > 2) url_attr = S(url_attr[2]).stripTags().s;
+		if (!!id_attr && id_attr.length > 2) id_attr = S(id_attr[2]).stripTags().s;
+		var divElem = "<div id='"+id_attr+"' data-type='voice' data-url='"+url_attr+"'>"+text_attr+"</div>";
+		data.content = data.content.replace(voiceSetting[0],divElem);
+		return true;
+	}else{
+		return false;
+	}
+}
+
+function processLocation(data){
+	var locationSetting = /(\[location )(.*)(\])/.exec(data.content);
+	if (!!locationSetting && locationSetting.length > 2) {
+		var x_attr = /(locx=\()(.*?)(\))/.exec(locationSetting[2]);
+		var y_attr = /(locy=\()(.*?)(\))/.exec(locationSetting[2]);
+		var name_attr = /(name=\()(.*?)(\)\s)/.exec(locationSetting[2]);
+		var scale_attr = /(scale=\()(.*?)(\))/.exec(locationSetting[2]);
+		if (!!x_attr && x_attr.length > 2) x_attr = S(x_attr[2]).stripTags().s;
+		if (!!y_attr && y_attr.length > 2) y_attr = S(y_attr[2]).stripTags().s;
+		if (!!name_attr && name_attr.length > 2) name_attr = S(name_attr[2]).stripTags().s;
+		if (!!scale_attr && scale_attr.length > 2) scale_attr = S(scale_attr[2]).stripTags().s;
+		var divElem = "<div data-type='location' data-x='"+x_attr+"' data-y='"+y_attr+"' data-scale='"+scale_attr+"'>"+name_attr+"</div>";
+		data.content = data.content.replace(locationSetting[0],divElem);
+		return true;
+	}else{
+		return false;
+	}
+}
+
+plugin.getPost = function(data, callback){
+	if (data && data.content) {
+		var finished = false;
+		do{
+			finished = processVideo(data);
+		}while(finished);
+
+		do{
+			finished = processVoice(data);
+		}while(finished);
+
+		do{
+			finished = processLocation(data);
+		}while(finished);
+	}
+	callback(null, data);
+};
+
+plugin.getPosts = function(params, callback){
+	var posts = params.posts;//params.uid
+	async.map(posts,function(post,next){
+		plugin.getPost(post,next);
+	},function(err,results){
+		params.posts = results;
+		callback(err, params);
+	});
+
+
+};
 
 plugin.load = function(params, callback) {
 	var router = params.router,

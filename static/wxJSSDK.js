@@ -72,4 +72,26 @@ $(document).ready(function() {
 			infoUrl: 'http://weixin.qq.com'
 		});
 	});
+
+	$(window).on('action:posts.loaded action:topic.loaded action:posts.edited', function () {
+		$("div[data-type='video']").each(function(){
+			var options = {
+				playlist: [{
+					sources: [{
+						file: $(this).attr('data-url'),
+						type: 'mp4'
+					}],
+					image: $(this).attr('data-thumbnail')
+				}],
+				flashplayer:'/plugins/nodebb-plugin-wechat-official-account/jwplayer/jwplayer.flash.swf',
+				html5player: '/plugins/nodebb-plugin-wechat-official-account/jwplayer/jwplayer.html5.js',
+				autostart:false,
+				width: "100%",
+				aspectratio: "16:9",
+				primary: "html5"
+			}
+			jwplayer($(this).attr('id')).setup(options);
+		});
+
+	});
 });
