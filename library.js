@@ -511,7 +511,15 @@ function processLocation(data){
 	}
 }
 
-plugin.getPost = function(data, callback){
+plugin.parsePost = function(params, callback){
+	var post = params.postData;
+	processPost(post,function(err,data){
+		params.postData = data;
+		callback(err,params);
+	});
+};
+
+function processPost(data, callback){
 	if (data && data.content) {
 		var finished = false;
 		do{
@@ -527,18 +535,6 @@ plugin.getPost = function(data, callback){
 		}while(finished);
 	}
 	callback(null, data);
-};
-
-plugin.getPosts = function(params, callback){
-	var posts = params.posts;//params.uid
-	async.map(posts,function(post,next){
-		plugin.getPost(post,next);
-	},function(err,results){
-		params.posts = results;
-		callback(err, params);
-	});
-
-
 };
 
 plugin.load = function(params, callback) {
