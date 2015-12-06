@@ -51,25 +51,16 @@ $(document).ready(function() {
 		}
 	}
 
-	$("#getNetworkType").on('click',function(){
-		wx.getNetworkType({
-			success: function (res) {
-				alert(res.networkType);
-			},
-			fail: function (res) {
-				alert(JSON.stringify(res));
-			}
-		});
-	});
-
-	$("#openLocation").on('click',function(){
+	$(document).on('click',"div[data-type='location']",function(){
+		var x = parseFloat($(this).attr('data-x'));
+		var y = parseFloat($(this).attr('data-y'));
 		wx.openLocation({
-			latitude: 23.099994,
-			longitude: 113.324520,
-			name: 'TIT 创意园',
-			address: '广州市海珠区新港中路 397 号',
-			scale: 14,
-			infoUrl: 'http://weixin.qq.com'
+			latitude: x,
+			longitude: y,
+			name: $(this)[0].textContent.substring(0,8),
+			address: $(this)[0].textContent,
+			scale: parseInt($(this).attr('data-y'),10)
+			//infoUrl: 'http://weixin.qq.com'
 		});
 	});
 
@@ -91,6 +82,49 @@ $(document).ready(function() {
 				primary: "html5"
 			}
 			jwplayer($(this).attr('id')).setup(options);
+		});
+
+		$("div[data-type='location']").each(function(){
+			if ($(this).find("div").length!==1) return;
+			if (isWeChat){
+				$(this).css('text-decoration','underline');
+				$(this).find("div").replaceWith('<i class="fa fa-location-arrow"></i>');
+				return;
+			}
+
+			$("#"+$(this).find("div").attr('id')).css('width','100%').css('height','300px');
+
+			//var map = new BMap.Map($(this).find("div").attr('id'));
+			//var point = new BMap.Point(Number.parseFloat($(this).attr('data-x')),Number.parseFloat($(this).attr('data-y')));
+			//map.centerAndZoom(point,Number.parseInt($(this).attr('data-scale')));
+			//var marker = new BMap.Marker(point);
+			//var label = new BMap.Label("我在这里!!!",{offset:new BMap.Size(20,0)});
+			//marker.setLabel(label);
+			//map.addOverlay(marker);
+
+			var center = new qq.maps.LatLng(parseFloat($(this).attr('data-x')),parseFloat($(this).attr('data-y')));
+			var map = new qq.maps.Map(document.getElementById($(this).find("div").attr('id')),{
+				center: center,
+				zoom: parseInt($(this).attr('data-scale'),10)
+			});
+			map.setOptions({
+				keyboardShortcuts : false, //设置禁止通过键盘控制地图。默认情况下启用键盘快捷键。
+				scrollwheel : false        //设置滚动缩放默认不允许
+			});
+			setTimeout(function(){
+				var marker=new qq.maps.Marker({
+					position:center,
+					animation:qq.maps.MarkerAnimation.DROP,
+					map:map
+				});
+				//marker.setAnimation(qq.maps.Animation.DROP);
+				var infoWin = new qq.maps.InfoWindow({
+					map: map
+				});
+				infoWin.open();
+				infoWin.setContent('<div style="width:80px;">我在这里!!!</div>');
+				infoWin.setPosition(center);
+			},2000);
 		});
 
 	});

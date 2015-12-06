@@ -247,9 +247,11 @@ function extractVideo(message,callback){
 
 function extractVoice(message,callback){
 	//[voice id=() text=() url=()]
-	uploadMediaToCloud(message.MediaId,function(err,url){
-		callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') url=('+url+')]');
-	});
+	callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') ]');
+	//How to convert/play amr format voice? comment them here
+	//uploadMediaToCloud(message.MediaId,function(err,url){
+	//callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') url=('+url+')]');
+	//});
 }
 
 function extractLink(message,callback){
@@ -258,7 +260,7 @@ function extractLink(message,callback){
 
 function extractLocation(message,callback){
  	//[location locx=() locy=() name=() scale=()]
-	callback(null,'[location locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
+	callback(null,'[location id=('+message.MediaId+') locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
 }
 
 function messages2Content(messages,callback){
@@ -499,11 +501,13 @@ function processLocation(data){
 		var y_attr = /(locy=\()(.*?)(\))/.exec(locationSetting[2]);
 		var name_attr = /(name=\()(.*?)(\)\s)/.exec(locationSetting[2]);
 		var scale_attr = /(scale=\()(.*?)(\))/.exec(locationSetting[2]);
+		var id_attr = /(id=\()(.*?)(\))/.exec(locationSetting[2]);
 		if (!!x_attr && x_attr.length > 2) x_attr = S(x_attr[2]).stripTags().s;
 		if (!!y_attr && y_attr.length > 2) y_attr = S(y_attr[2]).stripTags().s;
 		if (!!name_attr && name_attr.length > 2) name_attr = S(name_attr[2]).stripTags().s;
 		if (!!scale_attr && scale_attr.length > 2) scale_attr = S(scale_attr[2]).stripTags().s;
-		var divElem = "<div data-type='location' data-x='"+x_attr+"' data-y='"+y_attr+"' data-scale='"+scale_attr+"'>"+name_attr+"</div>";
+		if (!!id_attr && id_attr.length > 2) id_attr = S(id_attr[2]).stripTags().s;
+		var divElem = "<div data-type='location' data-x='"+x_attr+"' data-y='"+y_attr+"' data-scale='"+scale_attr+"'>"+name_attr+"<div id='"+id_attr+"'></div>"+"</div>";
 		data.content = data.content.replace(locationSetting[0],divElem);
 		return true;
 	}else{
