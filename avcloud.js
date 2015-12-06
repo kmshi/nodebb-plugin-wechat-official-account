@@ -247,10 +247,10 @@ var AV = rest.service(function(applicationId, applicationKey) {
     var hexOctet = function() {
       return Math.floor((1+Math.random())*0x10000).toString(16).substring(1);
     };
-    var key = hexOctet() + hexOctet() + hexOctet() + hexOctet();
+    //var key = hexOctet() + hexOctet() + hexOctet() + hexOctet();
+	var key = name.length>16?name:hexOctet() + hexOctet() + hexOctet() + hexOctet() + name;//make sure key is unique
     var metaData = {mime_type:mime_type,size:buffer.length};
     var data = {key:key,name:name,mime_type:mime_type,metaData:metaData};
-
     this.json('POST','https://leancloud.cn/1.1/qiniu',data)
     .on("success",function(data){
       var extra = new qiniu.io.PutExtra();
