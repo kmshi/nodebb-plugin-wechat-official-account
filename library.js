@@ -181,7 +181,7 @@ List.add('bind', [
 			wechatapi.getUser(req.weixin.FromUserName,function(err,userInfo){
 				if(err)return res.nowait(err);
 				login(userInfo,false,function(){
-					res.nowait(userInfo.nickname+',绑定成功,请输入标题');
+					wechatInputHandler(req, res, next);
 				});
 			});
 		});
@@ -224,6 +224,13 @@ function thumbnailURL(url, width, height, quality, scaleToFit, fmt){
 		+ '/q/' + quality + '/format/' + fmt;
 }
 
+function generateUniqueId(){
+	var hexOctet = function() {
+		return Math.floor((1+Math.random())*0x10000).toString(16).substring(1);
+	};
+	return hexOctet() + hexOctet() + hexOctet() + hexOctet();
+}
+
 function extractImage(message,callback){
 	//![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")
 	//callback(null,'[![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")](http://baidu.com)');
@@ -241,13 +248,13 @@ function extractVideo(message,callback){
 		video:async.apply(uploadMediaToCloud,message.MediaId),
 		thumbImg:async.apply(uploadMediaToCloud,message.ThumbMediaId)
 	},function(err,results){
-		callback(null,'[video id=('+message.MediaId+') thumbnail=('+results.thumbImg+') url=('+results.video+')]');
+		callback(null,'[video id=('+generateUniqueId()+') thumbnail=('+results.thumbImg+') url=('+results.video+')]');
 	});
 }
 
 function extractVoice(message,callback){
 	//[voice id=() text=() url=()]
-	callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') ]');
+	callback(null,'[voice id=('+generateUniqueId()+') text=('+message.Recognition+') ]');
 	//How to convert/play amr format voice? comment them here
 	//uploadMediaToCloud(message.MediaId,function(err,url){
 	//callback(null,'[voice id=('+message.MediaId+') text=('+message.Recognition+') url=('+url+')]');
@@ -260,7 +267,7 @@ function extractLink(message,callback){
 
 function extractLocation(message,callback){
  	//[location locx=() locy=() name=() scale=()]
-	callback(null,'[location id=('+message.MediaId+') locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
+	callback(null,'[location id=('+generateUniqueId()+') locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
 }
 
 function messages2Content(messages,callback){
@@ -281,7 +288,9 @@ function publishTopic(req, res, next) {
 	var openid = req.weixin.FromUserName;
 	var cid = req.weixin.Content;
 	messages2Content(req.wxsession.fastPost.content,function(err,text){
-		if (err) return res.nowait('发布失败:'+err);
+		if (err){
+			return res.nowait('发布失败:'+err);
+		}
 		//thumb,tags
 		topics.post({
 			uid:req.wxsession.user.uid,
@@ -291,11 +300,14 @@ function publishTopic(req, res, next) {
 		},function(err,data){
 			delete req.wxsession.fastPost;
 			List.remove('category_'+openid);
-			if (err) return res.nowait('发布失败:'+err);
-			//console.dir(data);
+			if (err){
+				return res.nowait('发布失败:'+err);
+			}
+			req.wxsession.topics = req.wxsession.topics||[];
+			req.wxsession.topics.push({tid:data.topicData.tid,topicTitle:data.topicData.title});
 			res.nowait([
 				{
-					title: '成功发布到'+data.topicData.category.name,
+					title: '成功发布到:'+data.topicData.category.name,
 					description: data.topicData.title,
 					//picurl: 'http://nodeapi.cloudfoundry.com/qrcode.jpg',
 					url: nconf.get("url")+"/topic/"+data.topicData.slug
@@ -310,21 +322,60 @@ function cancelPublish(req, res, next) {
 	delete req.wxsession.fastPost;
 	res.nowait('本次发布取消');
 	List.remove('category_'+openid);
+	List.remove('topic_'+openid);
+}
+
+function chooseTopic(req, res, next) {
+	var openid = req.weixin.FromUserName;
+	req.wxsession.fastPost.tid = req.weixin.Content;
+	res.nowait('请输入内容,如文字,图片,小视频,声音与位置,以#结束内容输入');
+	List.remove('topic_'+openid);
+}
+
+function replyTopic(uid,req, res, next) {
+	var openid = req.weixin.FromUserName;
+	messages2Content(req.wxsession.fastPost.content,function(err,text){
+		if (err){
+			return res.reply('回复失败:'+err);
+		}
+		topics.reply({uid: uid, tid: req.wxsession.fastPost.tid, content: text}, function(err,data){
+			delete req.wxsession.fastPost;
+			if (err){
+				return res.reply('回复失败:'+err);
+			}
+			res.reply([
+				{
+					title: '成功回复到:'+data.topic.title,
+					description: S(data.content).stripTags().s,
+					//picurl: 'http://nodeapi.cloudfoundry.com/qrcode.jpg',
+					url: nconf.get("url")+"/topic/"+data.topic.slug
+				}
+			]);
+		});
+	});
 }
 
 function showCategoryListForUser(openid,uid,callback){
 	categories.getCategoriesByPrivilege(uid, 'find', function(err,categories){
 		var items = [['请选择要发布的板块']];
 		for(var idx in categories){
-			items.push(['回复 {'+categories[idx].cid+'} 发布到'+categories[idx].name, publishTopic]);
+			items.push(['输入{'+categories[idx].cid+'}发布到:'+categories[idx].name, publishTopic]);
 		}
-		items.push(['回复 {x} 取消发布', cancelPublish]);
+		items.push(['输入{x}取消发布', cancelPublish]);
 		List.add('category_'+openid,items);
 		callback();
 	});
 }
 
-
+function showTopicListForUser(openid,topics,callback){
+	var items = [[(topics.length==0?'还没有您关注的主题':'请选择要回复的主题')]];
+	for(var idx in topics){
+		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].topicTitle, chooseTopic]);
+	}
+	items.push(['输入{x}取消回复', cancelPublish]);
+	List.add('topic_'+openid,items);
+	callback();
+}
 
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
@@ -344,9 +395,14 @@ function wechatInputHandler(req, res, next){
 						message.Content = message.Content.substr(0,message.Content.length-1)
 						req.wxsession.fastPost.content.push(message);
 					}
-					return showCategoryListForUser(openid,uid,function(){
-						res.wait('category_'+openid);
-					});
+					if (req.wxsession.fastPost.isNew){
+						return showCategoryListForUser(openid,uid,function(){
+							res.wait('category_'+openid);
+						});
+					}else{
+						return replyTopic(uid,req, res, next);
+					}
+
 				}
 				if (req.wxsession.fastPost.title){
 					req.wxsession.fastPost.content.push(message);
@@ -364,9 +420,15 @@ function wechatInputHandler(req, res, next){
 					return res.reply('请输入标题');
 				}
 			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_POST"){
-				req.wxsession.fastPost = {content:[]};
+				req.wxsession.fastPost = {content:[],isNew:true};
 				delete req.wxsession._wait;
 				return res.reply('请输入标题');
+			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_REPLY"){
+				req.wxsession.fastPost = {content:[],title:"Not needed",isNew:false};
+				delete req.wxsession._wait;
+				return showTopicListForUser(openid,req.wxsession.topics||[],function(){
+					res.wait('topic_'+openid);
+				});
 			}else if (message.MsgType==="event" && message.Event==="LOCATION"){
 				user.setUserFields(uid,{Latitude:message.Latitude,Longitude:message.Longitude},function(){
 					res.reply();
@@ -377,7 +439,10 @@ function wechatInputHandler(req, res, next){
 			}
 		} else{
 			if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
-				req.wxsession.fastPost = {content:[]};
+				req.wxsession.fastPost = {content:[],isNew:true};
+				return res.wait('bind');
+			}else if (message.Event==="CLICK" && message.EventKey==="FAST_REPLY"){
+				req.wxsession.fastPost = {content:[],title:"Not needed",isNew:false};
 				return res.wait('bind');
 			}else{
 				delete req.wxsession.fastPost;
@@ -451,6 +516,7 @@ plugin.userLoggedIn = function(params){
 					//send out socket event so UI can alert and exit
 					//send out wechat message
 					wechatapi.getLatestToken(function(err,result){
+						//TODO: check wxsession to give correct prompt
 						wechatapi.sendText(openid,"绑定成功,请输入标题",function(err,result){
 						});
 					});
@@ -553,6 +619,7 @@ plugin.load = function(params, callback) {
 			'    "appid": "",' + '\n' +
 			'    "appsecret": "",' + '\n' +
 			'    "allowAuth": true,' + '\n' +
+			'    "openid": "",' + '\n' +
 			'    "token": "",' + '\n' +
 			'    "encodingAESKey": "",' + '\n' +
 			'    "payment_mch_id": "",' + '\n' +
@@ -768,8 +835,16 @@ plugin.notificationPushed = function(params){
 					users.forEach(function(user){
 						//console.dir(user);
 						if (user.openid){
-							wechatapi.sendNews(user.openid,payload,function(err,result){
-							});
+							wechatapi.sendNews(user.openid,payload,function(err,result){});
+							if(notifObj.tid){
+								db.get("sess:"+user.openid+":"+nconf.get("wechat:openid"),function(err,str){
+									if (err) return;
+									var wxsession = JSON.parse(str);
+									wxsession.topics = wxsession.topics||[];
+									wxsession.topics.push({tid:notifObj.tid,topicTitle:data.topicTitle});
+									db.set("sess:"+user.openid+":"+nconf.get("wechat:openid"),JSON.stringify(wxsession),function(err,result){});
+								});
+							}
 						}
 					});
 				});
