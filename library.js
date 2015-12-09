@@ -30,82 +30,32 @@ var plugin = {},
 	passportWechat = require('passport-wechat').Strategy,
 	nconf = module.parent.require('nconf');
 
-var constantsWeb = Object.freeze({
-	'name': 'wechatweb',
-	'admin': {
-		'route': '/plugins/sso-wechatweb',
-		'icon': 'fa-weixin'
-	}
-});
-
-var constantsApp = Object.freeze({
-	'name': 'wechat',
-	'admin': {
-		'route': '/plugins/sso-wechat',
-		'icon': 'fa-weixin'
-	}
-});
-
 var avcloud = new AV(nconf.get("avcloud:appid"),nconf.get("avcloud:appkey"));
-
 var wechatapi = new API(nconf.get("wechat:appid"),nconf.get("wechat:appsecret"));
 
-function redirect_weixin_oauth(req,res,onlyOpenId){
-	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
-	var state = (onlyOpenId==true?"0":"1");
-	var path = "https://open.weixin.qq.com/connect/oauth2/authorize?";
-	var str = querystring.stringify({appid:nconf.get("wechat:appid"),
-		redirect_uri:nconf.get("wechat:secure_domain")+req.originalUrl.split("?")[0],
-		response_type:"code",
-		scope:scope});
+var List = wechat.List;
 
-	str = str + "&state=" + state;
-
-	winston.info("redirect:"+path+str+"#wechat_redirect");
-	res.redirect(path+str+"#wechat_redirect");
-	//for website, use "https://open.weixin.qq.com/connect/qrconnect?" and "snsapi_login" scope.
-}
-
-function setCookieMaxAge(req){
-	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
-	req.session.cookie.maxAge = duration;
-	req.session.cookie.expires = new Date(Date.now() + duration);
-}
-
-function wechatAuth(req, res, next) {
-	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
-	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
-
-	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
-	var str = querystring.stringify({appid:nconf.get("wechat:appid"),secret:nconf.get("wechat:appsecret"),code:req.query.code,grant_type:"authorization_code"});
-	req.session._wechatAuthed = 1;
-
-	rest.json(path+str,{}).on("success",function(authData) {
-		authData = JSON.parse(authData);
-		if (authData.errcode) {
-			//ignore the error
-			return next();
-		}
-		req.session._openid = authData.openid;
-		db.getObjectField('openid:uid', authData.openid, function(err, uid) {
-			if (err) {
-				return next();
-			}
-			if (uid){
-				//setCookieMaxAge(req);
-				req.login({uid: uid}, next);
-			}else{
-				next();
-			}
+List.add('bind', [
+	['闪发秒回需先绑定微信,请'],
+	['回复{1}直接使用微信登录并绑定微信', function (req, res, next) {
+		loginByOpenid(req.weixin.FromUserName,function(err,user){
+			if (err) return res.nowait(err);
+			res.nowait("登录并绑定成功,可以闪发秒回了.");
 		});
-	}).on("error",function(err){
-		//ignore the error
-		next();
+	}],
+	['回复{2}使用其他已有帐号登录并绑定微信', function (req, res, next) {
+		res.nowait("<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>请点击打开登录页面</a>");
+	}]
+]);
+
+function login(userInfo,isWeb,callback){
+	copyRemoteToCloud(userInfo.headimgurl,function(err,url){
+		userInfo.headimgurl = url;
+		_login(userInfo,isWeb,callback);
 	});
 }
 
-function login(userInfo,isWeb,callback){
-	//TODO:headimgurl need be saved to leancloud/qiniu
+function _login(userInfo,isWeb,callback){
 	var data = {
 		country:userInfo.country,
 		province:userInfo.province,
@@ -162,66 +112,39 @@ function login(userInfo,isWeb,callback){
 	});
 }
 
-
-function paymentResultNotify(req, res, next) {
-
-}
-
-function alarmNotify(req, res, next) {
-
-}
-
-var List = wechat.List;
-
-List.add('bind', [
-	['快速发帖需绑定微信,请先'],
-	['回复{1}直接使用微信登录并绑定微信', function (req, res, next) {
-		wechatapi.getLatestToken(function(err,result){
-			if(err) return res.nowait(err);
-			wechatapi.getUser(req.weixin.FromUserName,function(err,userInfo){
-				if(err)return res.nowait(err);
-				login(userInfo,false,function(){
-					wechatInputHandler(req, res, next);
-				});
-			});
-		});
-	}],
-	['回复{2}使用其他已有帐号登录并绑定微信', function (req, res, next) {
-		res.nowait("<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>请点击打开登录页面</a>");
-	}]
-]);
-
-function uploadMediaToCloud(mediaId,callback){
+//when wechat auth by snsapi_base
+function loginByOpenid(openid,callback){
 	wechatapi.getLatestToken(function(err,result){
 		if(err) return callback(err);
-		wechatapi.getMedia(mediaId,function(err,data,res){
-			if(err) return callback(err);
-			//content-disposition': 'attachment; filename="zbS8yLf7lxXt1vA2cqcIoUYPPyrR1mytXA1olZgBlmndEeuNHa7eYp1Cv-u-gpOg.jpg"'
-			var filename = res.headers['content-disposition'].match(/(filename=\")(.*)(\")/)[2];
-			avcloud.uploadFile(filename,res.headers['content-type'],data,function(err,data){
-				if(err) return callback(err);
-				callback(null,data.url);
-			});
-
+		wechatapi.getUser(openid,function(err,userInfo){
+			login(userInfo,false,callback);
 		});
 	});
 }
 
-function thumbnailURL(url, width, height, quality, scaleToFit, fmt){
-	if(!width|| width<=0){
-		throw "Invalid width value."
-	}
-	quality = quality || 100;
-	scaleToFit = (scaleToFit == null) ? true: scaleToFit;
-	if(quality<=0 || quality>100){
-		throw "Invalid quality value."
-	}
-	fmt = fmt || 'png';
-	var mode = scaleToFit ? 2: 1;
-
-	if (!height) return url + '?imageView/' + mode + '/w/' + width;
-	return url + '?imageView/' + mode + '/w/' + width + '/h/' + height
-		+ '/q/' + quality + '/format/' + fmt;
+function bindUser2Wechat(uid,openid,callback){
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.getUser(openid,function(err,userInfo){
+			if(err)return callback(err);
+			var data = {
+				country:userInfo.country,
+				province:userInfo.province,
+				fullname:userInfo.nickname,
+				city:userInfo.city,
+				openid:userInfo.openid,
+				sex:userInfo.sex,
+				uploadedpicture: userInfo.headimgurl,
+				picture: userInfo.headimgurl
+			};
+			if(userInfo.unionid) {
+				data.unionid = userInfo.unionid;
+				db.setObjectField('unionid:uid', userInfo.unionid, uid);
+			}
+			db.setObjectField('openid:uid', userInfo.openid, uid);
+			user.setUserFields(uid,data,callback);
+		});
+	});
 }
 
 function generateUniqueId(){
@@ -266,7 +189,7 @@ function extractLink(message,callback){
 }
 
 function extractLocation(message,callback){
- 	//[location locx=() locy=() name=() scale=()]
+	//[location locx=() locy=() name=() scale=()]
 	callback(null,'[location id=('+generateUniqueId()+') locx=('+message.Location_X+') locy=('+message.Location_Y+') name=('+message.Label+') scale=('+message["Scale"]+')]');
 }
 
@@ -361,7 +284,7 @@ function showCategoryListForUser(openid,uid,callback){
 		for(var idx in categories){
 			items.push(['输入{'+categories[idx].cid+'}发布到:'+categories[idx].name, publishTopic]);
 		}
-		items.push(['输入{x}取消发布', cancelPublish]);
+		items.push(['输入{0}取消发布', cancelPublish]);
 		List.add('category_'+openid,items);
 		callback();
 	});
@@ -372,24 +295,36 @@ function showTopicListForUser(openid,topics,callback){
 	for(var idx in topics){
 		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].topicTitle, chooseTopic]);
 	}
-	items.push(['输入{x}取消回复', cancelPublish]);
+	items.push(['输入{0}取消回复', cancelPublish]);
 	List.add('topic_'+openid,items);
 	callback();
+}
+
+function _authCheck(req, res, next){
+	var openid = req.weixin.FromUserName;
+	if (req.wxsession.user && req.wxsession.user.uid) return next();
+	db.getObjectField('openid:uid',openid, function(err, uid) {
+		if (err) return res.reply(err);
+		if (uid){
+			req.wxsession.user = {uid:uid};
+		}
+		next();
+	});
 }
 
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
-	var openid = req.weixin.FromUserName;
 	console.dir(message);
-	//console.dir(List.get('category_'+openid));
 
-	db.getObjectField('openid:uid',openid, function(err, uid) {
-		if (err) return res.reply(err);
-		if (uid){
-			req.wxsession.user = {uid:uid};
+	_authCheck(req, res, function(){
+		if (req.wxsession.user){
+			var uid = req.wxsession.user.uid;
+			var openid = message.FromUserName;
+
+			if (req.wxsession._wait && message.MsgType!=="event") return res.reply('请回复合适的选项');
+
 			if (message.MsgType==="text" && req.wxsession.fastPost){
-				if (req.wxsession._wait) return res.reply('请回复合适的选项');
 				if (message.Content.endsWith("#") && req.wxsession.fastPost.title){
 					if(message.Content.length>1) {
 						message.Content = message.Content.substr(0,message.Content.length-1)
@@ -439,13 +374,10 @@ function wechatInputHandler(req, res, next){
 			}
 		} else{
 			if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
-				req.wxsession.fastPost = {content:[],isNew:true};
 				return res.wait('bind');
 			}else if (message.Event==="CLICK" && message.EventKey==="FAST_REPLY"){
-				req.wxsession.fastPost = {content:[],title:"Not needed",isNew:false};
 				return res.wait('bind');
 			}else{
-				delete req.wxsession.fastPost;
 				return res.reply();
 				//return res.transfer2CustomerService(kfAccount);
 			}
@@ -453,20 +385,168 @@ function wechatInputHandler(req, res, next){
 	});
 }
 
+
+function uploadMediaToCloud(mediaId,callback){
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.getMedia(mediaId,function(err,data,res){
+			if(err) return callback(err);
+			//content-disposition': 'attachment; filename="zbS8yLf7lxXt1vA2cqcIoUYPPyrR1mytXA1olZgBlmndEeuNHa7eYp1Cv-u-gpOg.jpg"'
+			var filename = res.headers['content-disposition'].match(/(filename=\")(.*)(\")/)[2];
+			avcloud.uploadFile(filename,res.headers['content-type'],data,function(err,data){
+				if(err) return callback(err);
+				callback(null,data.url);
+			});
+
+		});
+	});
+}
+
+function thumbnailURL(url, width, height, quality, scaleToFit, fmt){
+	if(!width|| width<=0){
+		throw "Invalid width value."
+	}
+	quality = quality || 100;
+	scaleToFit = (scaleToFit == null) ? true: scaleToFit;
+	if(quality<=0 || quality>100){
+		throw "Invalid quality value."
+	}
+	fmt = fmt || 'png';
+	var mode = scaleToFit ? 2: 1;
+
+	if (!height) return url + '?imageView/' + mode + '/w/' + width;
+	return url + '?imageView/' + mode + '/w/' + width + '/h/' + height
+		+ '/q/' + quality + '/format/' + fmt;
+}
+
+function copyRemoteToCloud(url,callback){
+	callback(null,url);//TODO
+}
+
+function sendText(openid,text,callback){
+	callback = callback || function(){};
+	wechatapi.getLatestToken(function(err,result){
+		if (err) return callback(err);
+		wechatapi.sendText(openid,text,function(err,result){
+			callback(err,result);
+		});
+	});
+}
+
+function sendNews(openid,payload,callback){
+	callback = callback || function(){};
+	wechatapi.getLatestToken(function(err,result){
+		if (err) return callback(err);
+		wechatapi.sendNews(openid,payload,function(err,result){
+			callback(err,result);
+		});
+	});
+}
+
+function getJsConfig(data,callback){
+	callback = callback || function(){};
+	wechatapi.getLatestToken(function(err,result){
+		if(err){
+			return callback(err);
+		}
+		wechatapi.getJsConfig(data,function(err,config){
+			callback(err,config);
+		});
+	});
+}
+
+
+
+var constantsWeb = Object.freeze({
+	'name': 'wechatweb',
+	'admin': {
+		'route': '/plugins/sso-wechatweb',
+		'icon': 'fa-weixin'
+	}
+});
+
+var constantsApp = Object.freeze({
+	'name': 'wechat',
+	'admin': {
+		'route': '/plugins/sso-wechat',
+		'icon': 'fa-weixin'
+	}
+});
+
+
+function redirect_weixin_oauth(req,res,onlyOpenId){
+	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
+	var state = (onlyOpenId==true?"0":"1");
+	var path = "https://open.weixin.qq.com/connect/oauth2/authorize?";
+	var str = querystring.stringify({appid:nconf.get("wechat:appid"),
+		redirect_uri:nconf.get("wechat:secure_domain")+req.originalUrl.split("?")[0],
+		response_type:"code",
+		scope:scope});
+
+	str = str + "&state=" + state;
+
+	winston.info("redirect:"+path+str+"#wechat_redirect");
+	res.redirect(path+str+"#wechat_redirect");
+	//for website, use "https://open.weixin.qq.com/connect/qrconnect?" and "snsapi_login" scope.
+}
+
+function setCookieMaxAge(req){
+	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
+	req.session.cookie.maxAge = duration;
+	req.session.cookie.expires = new Date(Date.now() + duration);
+}
+
+function wechatAuth(req, res, next) {
+	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
+	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
+
+	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
+	var str = querystring.stringify({appid:nconf.get("wechat:appid"),secret:nconf.get("wechat:appsecret"),code:req.query.code,grant_type:"authorization_code"});
+	req.session._wechatAuthed = 1;
+
+	rest.json(path+str,{}).on("success",function(authData) {
+		authData = JSON.parse(authData);
+		if (authData.errcode) {
+			//ignore the error
+			return next();
+		}
+		req.session._openid = authData.openid;
+		db.getObjectField('openid:uid', authData.openid, function(err, uid) {
+			if (err) {
+				return next();
+			}
+			if (uid){
+				//setCookieMaxAge(req);
+				req.login({uid: uid}, next);
+			}else{
+				next();
+			}
+		});
+	}).on("error",function(err){
+		//ignore the error
+		next();
+	});
+}
+
+
+function paymentResultNotify(req, res, next) {
+
+}
+
+function alarmNotify(req, res, next) {
+
+}
+
+
 function wechatJSConfig(req,res){
 	var url = req.query.url;
 	if (url){
-		wechatapi.getLatestToken(function(err,result){
+		getJsConfig({url: url},function(err,data){
 			if(err){
 				return res.status(500).json(err);
 			}
-			wechatapi.getJsConfig({url: url},function(err,data){
-				if(err){
-					return res.status(500).json(err);
-				}
-				data.url = url;
-				res.json(data);
-			});
+			data.url = url;
+			res.json(data);
 		});
 	}else{
 		res.status(400).json({ error: 'No url parameter' });
@@ -476,32 +556,8 @@ function wechatJSConfig(req,res){
 function wxBind(req,res){
 	var openid = req.query.openid;
 	if(openid) req.session._openid = openid;
+	delete req.session._wechatAuthed;
 	res.redirect(nconf.get('relative_path')+"/login");
-}
-
-function bindUser2Wechat(uid,openid,callback){
-	wechatapi.getLatestToken(function(err,result){
-		if(err) return callback(err);
-		wechatapi.getUser(openid,function(err,userInfo){
-			if(err)return callback(err);
-			var data = {
-				country:userInfo.country,
-				province:userInfo.province,
-				fullname:userInfo.nickname,
-				city:userInfo.city,
-				openid:userInfo.openid,
-				sex:userInfo.sex,
-				uploadedpicture: userInfo.headimgurl,
-				picture: userInfo.headimgurl
-			};
-			if(userInfo.unionid) {
-				data.unionid = userInfo.unionid;
-				db.setObjectField('unionid:uid', userInfo.unionid, uid);
-			}
-			db.setObjectField('openid:uid', userInfo.openid, uid);
-			user.setUserFields(uid,data,callback);
-		});
-	});
 }
 
 plugin.userLoggedIn = function(params){
@@ -510,20 +566,43 @@ plugin.userLoggedIn = function(params){
 	var req = params.req;
 	if (openid){
 		user.getUserField(uid, "openid", function(err, xopenid) {
-			//if (err || xopenid) return;//if user is already assocaited
+			//if user is already assocaited
+			if (err || xopenid) return sendText(openid,"绑定错误,或者账号已绑定其他微信号");
 			bindUser2Wechat(uid,openid,function(err){
-				//if (!err && !req.session._wechatAuthed){
-					//send out socket event so UI can alert and exit
-					//send out wechat message
-					wechatapi.getLatestToken(function(err,result){
-						//TODO: check wxsession to give correct prompt
-						wechatapi.sendText(openid,"绑定成功,请输入标题",function(err,result){
-						});
-					});
-				//}
+				if (!err && !req.session._wechatAuthed){
+					sendText(openid,"绑定成功,可以闪发秒回了");
+				}
 			});
 		});
 	}
+};
+
+
+
+plugin.parsePost = function(params, callback){
+	var post = params.postData;
+	processPost(post,function(err,data){
+		params.postData = data;
+		callback(err,params);
+	});
+};
+
+function processPost(data, callback){
+	if (data && data.content) {
+		var finished = false;
+		do{
+			finished = processVideo(data);
+		}while(finished);
+
+		do{
+			finished = processVoice(data);
+		}while(finished);
+
+		do{
+			finished = processLocation(data);
+		}while(finished);
+	}
+	callback(null, data);
 };
 
 function processVideo(data){
@@ -581,31 +660,7 @@ function processLocation(data){
 	}
 }
 
-plugin.parsePost = function(params, callback){
-	var post = params.postData;
-	processPost(post,function(err,data){
-		params.postData = data;
-		callback(err,params);
-	});
-};
 
-function processPost(data, callback){
-	if (data && data.content) {
-		var finished = false;
-		do{
-			finished = processVideo(data);
-		}while(finished);
-
-		do{
-			finished = processVoice(data);
-		}while(finished);
-
-		do{
-			finished = processLocation(data);
-		}while(finished);
-	}
-	callback(null, data);
-};
 
 plugin.load = function(params, callback) {
 	var router = params.router,
@@ -699,11 +754,11 @@ plugin.getStrategy = function(strategies, callback){
 					appSecret:nconf.get("wechat:appsecret"),
 					client:'wechat',
 					callbackURL: nconf.get('url') + '/auth/wechat/callback',
-					scope: "snsapi_userinfo",
+					scope: "snsapi_userinfo",//"snsapi_base"
 					state:1
 				},
 				function(accessToken, refreshToken, profile, done) {
-					login(profile,false,done);
+					login(profile,false,done);//loginByOpenid(profile.openid,done);
 				})
 		);
 		strategies.push({
@@ -831,22 +886,20 @@ plugin.notificationPushed = function(params){
 			if (notifObj.user) payload[0].url = nconf.get('url') + '/user/' + notifObj.user.userslug;
 			//console.dir(payload);
 			user.getMultipleUserFields(uids,['openid'],function(err,users){
-				wechatapi.getLatestToken(function(err,result){
-					users.forEach(function(user){
-						//console.dir(user);
-						if (user.openid){
-							wechatapi.sendNews(user.openid,payload,function(err,result){});
-							if(notifObj.tid){
-								db.get("sess:"+user.openid+":"+nconf.get("wechat:openid"),function(err,str){
-									if (err) return;
-									var wxsession = JSON.parse(str);
-									wxsession.topics = wxsession.topics||[];
-									wxsession.topics.push({tid:notifObj.tid,topicTitle:data.topicTitle});
-									db.set("sess:"+user.openid+":"+nconf.get("wechat:openid"),JSON.stringify(wxsession),function(err,result){});
-								});
-							}
+				users.forEach(function(user){
+					//console.dir(user);
+					if (user.openid){
+						sendNews(user.openid,payload,function(err,result){});
+						if(notifObj.tid){
+							db.get("sess:"+user.openid+":"+nconf.get("wechat:openid"),function(err,str){
+								if (err) return;
+								var wxsession = JSON.parse(str);
+								wxsession.topics = wxsession.topics||[];
+								wxsession.topics.push({tid:notifObj.tid,topicTitle:data.topicTitle});
+								db.set("sess:"+user.openid+":"+nconf.get("wechat:openid"),JSON.stringify(wxsession),function(err,result){});
+							});
 						}
-					});
+					}
 				});
 			});
 		}
