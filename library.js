@@ -151,7 +151,7 @@ function generateUniqueId(){
 	var hexOctet = function() {
 		return Math.floor((1+Math.random())*0x10000).toString(16).substring(1);
 	};
-	return hexOctet() + hexOctet() + hexOctet() + hexOctet();
+	return "U" + hexOctet() + hexOctet() + hexOctet() + hexOctet();//let it start by a letter
 }
 
 function extractImage(message,callback){
