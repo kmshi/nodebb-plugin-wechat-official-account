@@ -207,6 +207,13 @@ function messages2Content(messages,callback){
 	});
 }
 
+function topicsUniqueSortAdd(topics,tid,title){
+	for(var idx in topics){
+		if (topics[idx].tid===tid) topics.splice(idx,1);
+	}
+	topics.unshift({tid:tid,title:title});
+}
+
 function publishTopic(req, res, next) {
 	var openid = req.weixin.FromUserName;
 	var cid = req.weixin.Content;
@@ -227,7 +234,8 @@ function publishTopic(req, res, next) {
 				return res.nowait('发布失败:'+err);
 			}
 			req.wxsession.topics = req.wxsession.topics||[];
-			req.wxsession.topics.push({tid:data.topicData.tid,topicTitle:data.topicData.title});
+			topicsUniqueSortAdd(req.wxsession.topics,data.topicData.tid,data.topicData.title);
+
 			res.nowait([
 				{
 					title: '成功发布到:'+data.topicData.category.name,
@@ -242,8 +250,12 @@ function publishTopic(req, res, next) {
 
 function cancelPublish(req, res, next) {
 	var openid = req.weixin.FromUserName;
+	if (req.wxsession.fastPost.isNew){
+		res.nowait('本次发布取消');
+	}else{
+		res.nowait('本次回复取消');
+	}
 	delete req.wxsession.fastPost;
-	res.nowait('本次发布取消');
 	List.remove('category_'+openid);
 	List.remove('topic_'+openid);
 }
@@ -293,7 +305,7 @@ function showCategoryListForUser(openid,uid,callback){
 function showTopicListForUser(openid,topics,callback){
 	var items = [[(topics.length==0?'还没有您关注的主题':'请选择要回复的主题')]];
 	for(var idx in topics){
-		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].topicTitle, chooseTopic]);
+		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].title, chooseTopic]);
 	}
 	items.push(['输入{0}取消回复', cancelPublish]);
 	List.add('topic_'+openid,items);
@@ -878,12 +890,13 @@ plugin.notificationPushed = function(params){
 			//picurl:data.pic,
 			var	payload = [
 				{
-					title:data.title || data.topicTitle,
-					description:notifObj.bodyLong,
-					url: nconf.get('url') + '/topic/' + data.topicSlug
+					title:data.title,
+					description:notifObj.bodyLong
 				}
 			];
+			if (data.topicSlug) payload[0].url = nconf.get('url') + '/topic/' + data.topicSlug;
 			if (notifObj.user) payload[0].url = nconf.get('url') + '/user/' + notifObj.user.userslug;
+			if (notifObj.path) payload[0].url = nconf.get('url') + notifObj.path;
 			//console.dir(payload);
 			user.getMultipleUserFields(uids,['openid'],function(err,users){
 				users.forEach(function(user){
@@ -895,7 +908,7 @@ plugin.notificationPushed = function(params){
 								if (err) return;
 								var wxsession = JSON.parse(str);
 								wxsession.topics = wxsession.topics||[];
-								wxsession.topics.push({tid:notifObj.tid,topicTitle:data.topicTitle});
+								topicsUniqueSortAdd(wxsession.topics,notifObj.tid,data.topicTitle);
 								db.set("sess:"+user.openid+":"+nconf.get("wechat:openid"),JSON.stringify(wxsession),function(err,result){});
 							});
 						}
