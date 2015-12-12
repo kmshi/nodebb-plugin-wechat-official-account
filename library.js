@@ -211,7 +211,8 @@ function topicsUniqueSortAdd(topics,tid,title){
 	for(var idx in topics){
 		if (topics[idx].tid===tid) topics.splice(idx,1);
 	}
-	topics.unshift({tid:tid,title:title});
+	topics.splice(9,topics.length-9);//keep max 10
+	topics.unshift({tid:tid,topicTitle:title});
 }
 
 function publishTopic(req, res, next) {
@@ -305,7 +306,7 @@ function showCategoryListForUser(openid,uid,callback){
 function showTopicListForUser(openid,topics,callback){
 	var items = [[(topics.length==0?'还没有您关注的主题':'请选择要回复的主题')]];
 	for(var idx in topics){
-		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].title, chooseTopic]);
+		items.push(['输入{'+topics[idx].tid+'}回复到:'+topics[idx].topicTitle, chooseTopic]);
 	}
 	items.push(['输入{0}取消回复', cancelPublish]);
 	List.add('topic_'+openid,items);
