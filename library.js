@@ -209,7 +209,7 @@ function messages2Content(messages,callback){
 
 function topicsUniqueSortAdd(topics,tid,title){
 	for(var idx in topics){
-		if (topics[idx].tid===tid) topics.splice(idx,1);
+		if (topics[idx].tid==tid) topics.splice(idx,1);
 	}
 	topics.splice(9,topics.length-9);//keep max 10
 	topics.unshift({tid:tid,topicTitle:title});
