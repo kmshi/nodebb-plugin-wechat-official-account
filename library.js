@@ -12,6 +12,7 @@
 
 var plugin = {},
 	winston = module.parent.require('winston'),
+	request = module.parent.require('request'),
 	meta = module.parent.require('./meta'),
 	async = module.parent.require('async'),
 	S = module.parent.require('string'),
@@ -127,22 +128,25 @@ function bindUser2Wechat(uid,openid,callback){
 		if(err) return callback(err);
 		wechatapi.getUser(openid,function(err,userInfo){
 			if(err)return callback(err);
-			var data = {
-				country:userInfo.country,
-				province:userInfo.province,
-				fullname:userInfo.nickname,
-				city:userInfo.city,
-				openid:userInfo.openid,
-				sex:userInfo.sex,
-				uploadedpicture: userInfo.headimgurl,
-				picture: userInfo.headimgurl
-			};
-			if(userInfo.unionid) {
-				data.unionid = userInfo.unionid;
-				db.setObjectField('unionid:uid', userInfo.unionid, uid);
-			}
-			db.setObjectField('openid:uid', userInfo.openid, uid);
-			user.setUserFields(uid,data,callback);
+			copyRemoteToCloud(userInfo.headimgurl,function(err,url){
+				userInfo.headimgurl = url;
+				var data = {
+					country:userInfo.country,
+					province:userInfo.province,
+					fullname:userInfo.nickname,
+					city:userInfo.city,
+					openid:userInfo.openid,
+					sex:userInfo.sex,
+					uploadedpicture: userInfo.headimgurl,
+					picture: userInfo.headimgurl
+				};
+				if(userInfo.unionid) {
+					data.unionid = userInfo.unionid;
+					db.setObjectField('unionid:uid', userInfo.unionid, uid);
+				}
+				db.setObjectField('openid:uid', userInfo.openid, uid);
+				user.setUserFields(uid,data,callback);
+			});
 		});
 	});
 }
@@ -433,7 +437,17 @@ function thumbnailURL(url, width, height, quality, scaleToFit, fmt){
 }
 
 function copyRemoteToCloud(url,callback){
-	callback(null,url);//TODO
+	request({uri:url,encoding:null}, function (error, response, body) {
+		//body to be buffer when encoding is null
+		if (!error && response.statusCode == 200) {
+			avcloud.uploadFile("profile.jpg",'image/jpeg',body,function(err,data){
+				if(err) return callback(null,url);
+				callback(null,data.url);
+			});
+		}else{
+			callback(null,url);
+		}
+	});
 }
 
 function sendText(openid,text,callback){
