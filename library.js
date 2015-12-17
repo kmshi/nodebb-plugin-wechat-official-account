@@ -334,6 +334,41 @@ function wechatInputHandler(req, res, next){
 	var message = req.weixin;
 	console.dir(message);
 
+	if (message.MsgType==="event" && message.Event==="SCAN" && message.Ticket){
+		//req.wxsession.ticket = message.Ticket;//https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=TICKET
+		req.wxsession.parentOpenid = message.EventKey;//equals to scene_id/scene_str, we can set to openid
+	}
+
+	if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="SHOW_QRCODE"){
+		return wechatapi.getLatestToken(function(err,result){
+			if(err) return res.reply(err);
+			wechatapi.createLimitQRCode(message.FromUserName,function(err,result){
+				var filename = "/tmp/qrcode.jpg";
+				request.get(wechatapi.showQRCodeURL(result.ticket))
+					.on('error', function(err) {
+						res.reply(err);
+					})
+					.pipe(require('fs').createWriteStream(filename))
+					.on('close', function(err) {
+						if (err) {
+							return res.reply(err);
+						}
+						wechatapi.uploadMedia(filename,'image',function(err,result){
+							if (err) {
+								return res.reply(err);
+							}
+							res.reply({
+								type: "image",
+								content: {
+									mediaId: result.media_id
+								}
+							});
+						});
+					});
+			});
+		});
+	}
+
 	_authCheck(req, res, function(){
 		if (req.wxsession.user){
 			var uid = req.wxsession.user.uid;
