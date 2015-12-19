@@ -18,7 +18,7 @@ function configureWeChat(path){
 				wx.onMenuShareAppMessage({
 					title:ajaxify.data.name || ajaxify.data.title || $("meta[name='title']").attr("content"),
 					desc:ajaxify.data.description || (ajaxify.data.posts && ajaxify.data.posts[0].content) || $("meta[name='description']").attr("content"),
-					link:window.location.href,
+					link:window.location.href+"?parentUid="+app.user.uid,
 					imgUrl:($("img:not(.hide):not(.user-img)")[0] && $("img:not(.hide):not(.user-img)")[0].src)||'',
 					type:'link',
 					dataUrl:''

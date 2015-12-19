@@ -329,44 +329,36 @@ function _authCheck(req, res, next){
 	});
 }
 
+function getOrCreateQRCodeTicket(uid,req,callback){
+	if (req.wxsession.ticket) return callback(null,req.wxsession.ticket);
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.createLimitQRCode(uid,function(err,result){
+			if (err) return callback(err);
+			req.wxsession.ticket = result.ticket;
+			callback(null,req.wxsession.ticket);
+		});
+	});
+}
+
+function uploadMedia(filename,type,callback){
+	wechatapi.getLatestToken(function(err,result){
+		if(err) return callback(err);
+		wechatapi.uploadMedia(filename,type,function(err,result){
+			callback(err,result);
+		});
+	});
+}
+
 function wechatInputHandler(req, res, next){
 	// 微信输入信息都在req.weixin上
 	var message = req.weixin;
 	console.dir(message);
 
 	if (message.MsgType==="event" && message.Event==="SCAN" && message.Ticket){
-		//req.wxsession.ticket = message.Ticket;//https://mp.weixin.qq.com/cgi-bin/showqrcode?ticket=TICKET
-		req.wxsession.parentOpenid = message.EventKey;//equals to scene_id/scene_str, we can set to openid
-	}
-
-	if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="SHOW_QRCODE"){
-		return wechatapi.getLatestToken(function(err,result){
-			if(err) return res.reply(err);
-			wechatapi.createLimitQRCode(message.FromUserName,function(err,result){
-				var filename = "/tmp/qrcode.jpg";
-				request.get(wechatapi.showQRCodeURL(result.ticket))
-					.on('error', function(err) {
-						res.reply(err);
-					})
-					.pipe(require('fs').createWriteStream(filename))
-					.on('close', function(err) {
-						if (err) {
-							return res.reply(err);
-						}
-						wechatapi.uploadMedia(filename,'image',function(err,result){
-							if (err) {
-								return res.reply(err);
-							}
-							res.reply({
-								type: "image",
-								content: {
-									mediaId: result.media_id
-								}
-							});
-						});
-					});
-			});
-		});
+		if (req.wxsession.ticket !== message.Ticket && !req.wxsession.parentUid){
+			req.wxsession.parentUid = parseInt(message.EventKey,10);//equals to scene_id/scene_str, we can set to uid
+		}
 	}
 
 	_authCheck(req, res, function(){
@@ -419,6 +411,32 @@ function wechatInputHandler(req, res, next){
 			}else if (message.MsgType==="event" && message.Event==="LOCATION"){
 				user.setUserFields(uid,{Latitude:message.Latitude,Longitude:message.Longitude},function(){
 					res.reply();
+				});
+			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="SHOW_QRCODE"){
+				return getOrCreateQRCodeTicket(uid,req,function(err,ticket){
+					if(err) return res.reply(err);
+					var filename = "/tmp/qrcode.jpg";
+					request.get(wechatapi.showQRCodeURL(ticket))
+						.on('error', function(err) {
+							res.reply(err);
+						})
+						.pipe(require('fs').createWriteStream(filename))
+						.on('close', function(err) {
+							if (err) {
+								return res.reply(err);
+							}
+							uploadMedia(filename,'image',function(err,result){
+								if (err) {
+									return res.reply(err);
+								}
+								res.reply({
+									type: "image",
+									content: {
+										mediaId: result.media_id
+									}
+								});
+							});
+						});
 				});
 			}else{
 				return res.reply();
@@ -559,6 +577,7 @@ function setCookieMaxAge(req){
 }
 
 function wechatAuth(req, res, next) {
+	if (req.query && req.query.parentUid) req.session._parentUid = parseInt(req.query.parentUid,10);
 	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
@@ -625,18 +644,28 @@ function wxBind(req,res){
 plugin.userLoggedIn = function(params){
 	var uid = params.uid;
 	var openid = params.req.session._openid;
-	var req = params.req;
-	if (openid){
-		user.getUserField(uid, "openid", function(err, xopenid) {
+	var parentUid = params.req.session._parentUid;
+	var wechatAuthed = params.req.session._wechatAuthed;
+	user.getUserField(uid, "openid", function(err, xopenid) {
+		if (openid){
 			//if user is already assocaited
 			if (err || xopenid) return sendText(openid,"绑定错误,或者账号已绑定其他微信号");
 			bindUser2Wechat(uid,openid,function(err){
-				if (!err && !req.session._wechatAuthed){
+				if (!err && !wechatAuthed){
 					sendText(openid,"绑定成功,可以闪发秒回了");
 				}
 			});
-		});
-	}
+		}
+		var bindedOpenid = xopenid || openid;
+		if (bindedOpenid){
+			db.get("sess:"+bindedOpenid+":"+nconf.get("wechat:openid"),function(err,str){
+				if (err) return;
+				var wxsession = JSON.parse(str);
+				parentUid = wxsession.parentUid || parentUid || 1;
+				user.setUserFields(uid,{parentUid:parentUid},function(){});
+			});
+		}
+	});
 };
 
 
