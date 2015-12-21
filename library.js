@@ -677,9 +677,19 @@ plugin.userLoggedIn = function(params){
 			db.get("sess:"+bindedOpenid+":"+nconf.get("wechat:openid"),function(err,str){
 				if (err) return;
 				var wxsession = JSON.parse(str);
-				parentUid = wxsession.parentUid || parentUid || 1;
-				user.setUserFields(uid,{parentUid:parentUid},function(){});
+				parentUid = wxsession.parentUid || parentUid;
+				if (parentUid){
+					user.setUserFields(uid,{parentUid:parentUid},function(){});
+					user.follow(parentUid,uid,function(){});
+					user.follow(uid,parentUid,function(){});
+				}
 			});
+		}else{
+			if (parentUid){
+				user.setUserFields(uid,{parentUid:parentUid},function(){});
+				user.follow(parentUid,uid,function(){});
+				user.follow(uid,parentUid,function(){});
+			}
 		}
 	});
 };
