@@ -162,7 +162,7 @@ function extractImage(message,callback){
 	//![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")
 	//callback(null,'[![baidu](http://www.baidu.com/img/bdlogo.gif "百度Logo")](http://baidu.com)');
 	uploadMediaToCloud(message.MediaId,function(err,url){
-		callback(null,'![]('+url+')');
+		callback(null,'![]('+url+')',url);
 	});
 }
 
@@ -175,7 +175,7 @@ function extractVideo(message,callback){
 		video:async.apply(uploadMediaToCloud,message.MediaId),
 		thumbImg:async.apply(uploadMediaToCloud,message.ThumbMediaId)
 	},function(err,results){
-		callback(null,'[video id=('+generateUniqueId()+') thumbnail=('+results.thumbImg+') url=('+results.video+')]');
+		callback(null,'[video id=('+generateUniqueId()+') thumbnail=('+results.thumbImg+') url=('+results.video+')]',results.thumbImg);
 	});
 }
 
@@ -198,16 +198,30 @@ function extractLocation(message,callback){
 }
 
 function messages2Content(messages,callback){
+	var tags = [];
+	var thumbs = [];
 	async.map(messages,function(message, next){
-		if (message.MsgType==='image') return extractImage(message,next);
-		if (message.MsgType==='video'||message.MsgType==='shortvideo') return extractVideo(message,next);
+		if (message.MsgType==='image') {
+			tags.push('image');
+			return extractImage(message,function(err,content,thumb){
+				thumbs.push(thumb);
+				next(err,content);
+			});
+		}
+		if (message.MsgType==='video'||message.MsgType==='shortvideo'){
+			tags.push('video');
+			return extractVideo(message,function(err,content,thumb){
+				thumbs.push(thumb);
+				next(err,content);
+			});
+		}
 		if (message.MsgType==='voice') return extractVoice(message,next);
 		if (message.MsgType==='link') return extractLink(message,next);
 		if (message.MsgType==='location') return extractLocation(message,next);
 		if (message.MsgType==='text') return next(null,message.Content);
 		next(null,"Unknown message!");
 	}, function(err, results){
-		callback(null,results.join('\n'));
+		callback(null,results.join('\n'),tags,thumbs);
 	});
 }
 
@@ -222,7 +236,7 @@ function topicsUniqueSortAdd(topics,tid,title){
 function publishTopic(req, res, next) {
 	var openid = req.weixin.FromUserName;
 	var cid = req.weixin.Content;
-	messages2Content(req.wxsession.fastPost.content,function(err,text){
+	messages2Content(req.wxsession.fastPost.content,function(err,content,tags,thumbs){
 		if (err){
 			return res.nowait('发布失败:'+err);
 		}
@@ -230,8 +244,10 @@ function publishTopic(req, res, next) {
 		topics.post({
 			uid:req.wxsession.user.uid,
 			cid:cid,
+			thumb:thumbs[0],
+			tags:tags,
 			title:req.wxsession.fastPost.title,
-			content:text
+			content:content
 		},function(err,data){
 			delete req.wxsession.fastPost;
 			List.remove('category_'+openid);
