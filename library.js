@@ -35,6 +35,7 @@ var avcloud = new AV(nconf.get("avcloud:appid"),nconf.get("avcloud:appkey"));
 var wechatapi = new API(nconf.get("wechat:appid"),nconf.get("wechat:appsecret"));
 
 var List = wechat.List;
+var dullFunc = function(err){if(err)console.dir(err);};
 
 List.add('bind', [
 	['闪发秒回需先绑定微信,请'],
@@ -115,38 +116,32 @@ function _login(userInfo,isWeb,callback){
 
 //when wechat auth by snsapi_base
 function loginByOpenid(openid,callback){
-	wechatapi.getLatestToken(function(err,result){
-		if(err) return callback(err);
-		wechatapi.getUser(openid,function(err,userInfo){
-			login(userInfo,false,callback);
-		});
+	wechatapi.getUser(openid,function(err,userInfo){
+		login(userInfo,false,callback);
 	});
 }
 
 function bindUser2Wechat(uid,openid,callback){
-	wechatapi.getLatestToken(function(err,result){
-		if(err) return callback(err);
-		wechatapi.getUser(openid,function(err,userInfo){
-			if(err)return callback(err);
-			copyRemoteToCloud(userInfo.headimgurl,function(err,url){
-				userInfo.headimgurl = url;
-				var data = {
-					country:userInfo.country,
-					province:userInfo.province,
-					fullname:userInfo.nickname,
-					city:userInfo.city,
-					openid:userInfo.openid,
-					sex:userInfo.sex,
-					uploadedpicture: userInfo.headimgurl,
-					picture: userInfo.headimgurl
-				};
-				if(userInfo.unionid) {
-					data.unionid = userInfo.unionid;
-					db.setObjectField('unionid:uid', userInfo.unionid, uid);
-				}
-				db.setObjectField('openid:uid', userInfo.openid, uid);
-				user.setUserFields(uid,data,callback);
-			});
+	wechatapi.getUser(openid,function(err,userInfo){
+		if(err)return callback(err);
+		copyRemoteToCloud(userInfo.headimgurl,function(err,url){
+			userInfo.headimgurl = url;
+			var data = {
+				country:userInfo.country,
+				province:userInfo.province,
+				fullname:userInfo.nickname,
+				city:userInfo.city,
+				openid:userInfo.openid,
+				sex:userInfo.sex,
+				uploadedpicture: userInfo.headimgurl,
+				picture: userInfo.headimgurl
+			};
+			if(userInfo.unionid) {
+				data.unionid = userInfo.unionid;
+				db.setObjectField('unionid:uid', userInfo.unionid, uid);
+			}
+			db.setObjectField('openid:uid', userInfo.openid, uid);
+			user.setUserFields(uid,data,callback);
 		});
 	});
 }
@@ -355,21 +350,15 @@ function getOrCreateQRCodeTicket(uid,req,callback){
 }
 
 function _createQRCodeTicket(uid,callback){
-	wechatapi.getLatestToken(function(err,result){
-		if(err) return callback(err);
-		wechatapi.createLimitQRCode(uid,function(err,result){
-			if (err) return callback(err);
-			callback(null,result.ticket);
-		});
+	wechatapi.createLimitQRCode(uid,function(err,result){
+		if (err) return callback(err);
+		callback(null,result.ticket);
 	});
 }
 
 function uploadMedia(filename,type,callback){
-	wechatapi.getLatestToken(function(err,result){
-		if(err) return callback(err);
-		wechatapi.uploadMedia(filename,type,function(err,result){
-			callback(err,result);
-		});
+	wechatapi.uploadMedia(filename,type,function(err,result){
+		callback(err,result);
 	});
 }
 
@@ -480,18 +469,15 @@ function wechatInputHandler(req, res, next){
 
 
 function uploadMediaToCloud(mediaId,callback){
-	wechatapi.getLatestToken(function(err,result){
+	wechatapi.getMedia(mediaId,function(err,data,res){
 		if(err) return callback(err);
-		wechatapi.getMedia(mediaId,function(err,data,res){
+		//content-disposition': 'attachment; filename="zbS8yLf7lxXt1vA2cqcIoUYPPyrR1mytXA1olZgBlmndEeuNHa7eYp1Cv-u-gpOg.jpg"'
+		var filename = res.headers['content-disposition'].match(/(filename=\")(.*)(\")/)[2];
+		avcloud.uploadFile(filename,res.headers['content-type'],data,function(err,data){
 			if(err) return callback(err);
-			//content-disposition': 'attachment; filename="zbS8yLf7lxXt1vA2cqcIoUYPPyrR1mytXA1olZgBlmndEeuNHa7eYp1Cv-u-gpOg.jpg"'
-			var filename = res.headers['content-disposition'].match(/(filename=\")(.*)(\")/)[2];
-			avcloud.uploadFile(filename,res.headers['content-type'],data,function(err,data){
-				if(err) return callback(err);
-				callback(null,data.url);
-			});
-
+			callback(null,data.url);
 		});
+
 	});
 }
 
@@ -527,34 +513,22 @@ function copyRemoteToCloud(url,callback){
 }
 
 function sendText(openid,text,callback){
-	callback = callback || function(){};
-	wechatapi.getLatestToken(function(err,result){
-		if (err) return callback(err);
-		wechatapi.sendText(openid,text,function(err,result){
-			callback(err,result);
-		});
+	callback = callback || dullFunc;
+	wechatapi.sendText(openid,text,function(err,result){
+		callback(err,result);
 	});
 }
 
 function sendNews(openid,payload,callback){
-	callback = callback || function(){};
-	wechatapi.getLatestToken(function(err,result){
-		if (err) return callback(err);
-		wechatapi.sendNews(openid,payload,function(err,result){
-			callback(err,result);
-		});
+	callback = callback || dullFunc;
+	wechatapi.sendNews(openid,payload,function(err,result){
+		callback(err,result);
 	});
 }
 
 function getJsConfig(data,callback){
-	callback = callback || function(){};
-	wechatapi.getLatestToken(function(err,result){
-		if(err){
-			return callback(err);
-		}
-		wechatapi.getJsConfig(data,function(err,config){
-			callback(err,config);
-		});
+	wechatapi.getJsConfig(data,function(err,config){
+		callback(err,config);
 	});
 }
 
@@ -716,16 +690,16 @@ plugin.userLoggedIn = function(params){
 				var wxsession = JSON.parse(str);
 				parentUid = wxsession.parentUid || parentUid;
 				if (parentUid){
-					user.setUserFields(uid,{parentUid:parentUid},function(){});
-					user.follow(parentUid,uid,function(){});
-					user.follow(uid,parentUid,function(){});
+					user.setUserFields(uid,{parentUid:parentUid},dullFunc);
+					user.follow(parentUid,uid,dullFunc);
+					user.follow(uid,parentUid,dullFunc);
 				}
 			});
 		}else{
 			if (parentUid){
-				user.setUserFields(uid,{parentUid:parentUid},function(){});
-				user.follow(parentUid,uid,function(){});
-				user.follow(uid,parentUid,function(){});
+				user.setUserFields(uid,{parentUid:parentUid},dullFunc);
+				user.follow(parentUid,uid,dullFunc);
+				user.follow(uid,parentUid,dullFunc);
 			}
 		}
 	});
@@ -1062,22 +1036,52 @@ plugin.notificationPushed = function(params){
 	]);
 };
 
+function findWXGroupId(groupName,callback){
+	wechatapi.getGroups(function(err,result){
+		var groups = result.groups;
+		var id = null;
+		groups.forEach(function(group){
+			if (group.name===groupName){
+				id = group.id;
+			}
+		});
+		callback(null,id);
+	});
+}
+
 plugin.leaveGroup = function(params){
-	//groupName,uid
-	console.dir(params);
+	if (!params.groupName.startsWith('wx')) return;
+	user.getUserField(params.uid, "openid", function(err, openid){
+		if (openid){
+			wechatapi.moveUserToGroup(openid,0,dullFunc);//is 0 the default "未分组"?
+		}
+	});
 }
 
 plugin.joinGroup = function(params){
-	//groupName,uid
-	console.dir(params);
+	if (!params.groupName.startsWith('wx')) return;
+	user.getUserField(params.uid, "openid", function(err, openid){
+		if (openid){
+			findWXGroupId(params.groupName,function(err,groupId){
+				if (groupId) wechatapi.moveUserToGroup(openid,groupId,dullFunc);
+			});
+		}
+	});
 }
 
 plugin.groupCreated = function(groupObj){
-	console.dir(groupObj);
+	if (!groupObj.name.startsWith('wx')) return;
+	wechatapi.createGroup(groupObj.name,function(err,result){
+		//if (err)return;
+		//plugin.joinGroup({uid:groupObj.ownerUid,groupName:groupObj.name});
+	});
 }
 
 plugin.groupDestroied = function(groupObj){
-	console.dir(groupObj);
+	if (!groupObj.name.startsWith('wx')) return;
+	findWXGroupId(groupObj.name,function(err,groupId){
+		if (groupId) wechatapi.removeGroup(groupId,dullFunc);
+	});
 }
 
 module.exports = plugin;
