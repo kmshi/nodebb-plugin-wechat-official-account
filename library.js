@@ -347,12 +347,19 @@ function _authCheck(req, res, next){
 
 function getOrCreateQRCodeTicket(uid,req,callback){
 	if (req.wxsession.ticket) return callback(null,req.wxsession.ticket);
+	_createQRCodeTicket(uid,function(err,ticket){
+		if (err) return callback(err);
+		req.wxsession.ticket = ticket;
+		callback(null,req.wxsession.ticket);
+	});
+}
+
+function _createQRCodeTicket(uid,callback){
 	wechatapi.getLatestToken(function(err,result){
 		if(err) return callback(err);
 		wechatapi.createLimitQRCode(uid,function(err,result){
 			if (err) return callback(err);
-			req.wxsession.ticket = result.ticket;
-			callback(null,req.wxsession.ticket);
+			callback(null,result.ticket);
 		});
 	});
 }
@@ -657,11 +664,41 @@ function wxBind(req,res){
 	res.redirect(nconf.get('relative_path')+"/login");
 }
 
+var _globalQRCodeTicket;
+function getOrCreateGlobalQRCodeTicket(callback){
+	if (_globalQRCodeTicket) return callback(null,_globalQRCodeTicket);
+	_createQRCodeTicket(1,function(err,ticket){//use admin uid 1
+		_globalQRCodeTicket = ticket;
+		callback(err,_globalQRCodeTicket);
+	});
+}
+
+function showQRCode(req,res){
+	var uid = req.session._parentUid || parseInt(req.session.passport.user,10);
+	getOrCreateGlobalQRCodeTicket(function(err,globalTicket){
+		user.getUserField(uid, "openid", function(err, xopenid){
+			if (err || !xopenid) return res.redirect(wechatapi.showQRCodeURL(globalTicket));
+			db.get("sess:"+xopenid+":"+nconf.get("wechat:openid"),function(err,str){
+				if (err || !str) return res.redirect(wechatapi.showQRCodeURL(globalTicket));
+				var wxsession = JSON.parse(str);
+				if (wxsession.ticket){
+					res.redirect(wechatapi.showQRCodeURL(wxsession.ticket));
+				}else{
+					res.redirect(wechatapi.showQRCodeURL(globalTicket));
+				}
+			});
+		});
+	});
+}
+
 plugin.userLoggedIn = function(params){
 	var uid = params.uid;
 	var openid = params.req.session._openid;
 	var parentUid = params.req.session._parentUid;
 	var wechatAuthed = params.req.session._wechatAuthed;
+	delete params.req.session._openid;
+	delete params.req.session._parentUid;
+	delete params.req.session._wechatAuthed;
 	user.getUserField(uid, "openid", function(err, xopenid) {
 		if (openid){
 			//if user is already assocaited
@@ -828,6 +865,7 @@ plugin.load = function(params, callback) {
 	router.post('/notify/alarmNotify',alarmNotify);
 	router.get('/api/wechatJSConfig',wechatJSConfig);
 	router.get('/wxBind',wxBind);
+	router.get('/showQRCode',showQRCode);
 
 	var config = nconf.get("wechat:token");
 	if (nconf.get("wechat:encodingAESKey")!==null && nconf.get("wechat:encodingAESKey")!==""){
@@ -1023,5 +1061,23 @@ plugin.notificationPushed = function(params){
 		}
 	]);
 };
+
+plugin.leaveGroup = function(params){
+	//groupName,uid
+	console.dir(params);
+}
+
+plugin.joinGroup = function(params){
+	//groupName,uid
+	console.dir(params);
+}
+
+plugin.groupCreated = function(groupObj){
+	console.dir(groupObj);
+}
+
+plugin.groupDestroied = function(groupObj){
+	console.dir(groupObj);
+}
 
 module.exports = plugin;
