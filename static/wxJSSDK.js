@@ -15,13 +15,22 @@ function configureWeChat(path){
 			wx.config(data);
 			wx.ready(function(){
 				//wx.hideOptionMenu();
+				var title = ajaxify.data.name || ajaxify.data.title || $("meta[name='title']").attr("content");
+				var desc = ajaxify.data.description || (ajaxify.data.posts && ajaxify.data.posts[0].content) || $("meta[name='description']").attr("content");
+				var link = window.location.href+"?parentUid="+app.user.uid;
+				var imgUrl = ($("img:not(.hide):not(.user-img)")[0] && $("img:not(.hide):not(.user-img)")[0].src)||'';
 				wx.onMenuShareAppMessage({
-					title:ajaxify.data.name || ajaxify.data.title || $("meta[name='title']").attr("content"),
-					desc:ajaxify.data.description || (ajaxify.data.posts && ajaxify.data.posts[0].content) || $("meta[name='description']").attr("content"),
-					link:window.location.href+"?parentUid="+app.user.uid,
-					imgUrl:($("img:not(.hide):not(.user-img)")[0] && $("img:not(.hide):not(.user-img)")[0].src)||'',
+					title:title,
+					desc:desc,
+					link:link,
+					imgUrl:imgUrl,
 					type:'link',
 					dataUrl:''
+				});
+				wx.onMenuShareTimeline({
+					title:title,
+					link:link,
+					imgUrl:imgUrl
 				});
 			});
 			wx.error(function(err){
