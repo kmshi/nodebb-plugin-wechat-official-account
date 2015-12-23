@@ -1,11 +1,15 @@
 /**
  * Created by kshi on 10/13/15.
  * TODO List:
- * 1.file upload plugin to leancloud/qiniu cloud
+ * 1.file upload plugin to leancloud/qiniu cloud -- Done, need test, seems nginx has 1M size limit???
  * 2.New Topic UI, wechat version and web version; wechat fast login button + other login button
- * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx --Doing
- * 4.Notification
- * 5.JS SDK Social Share
+ * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx --Done
+ * 4.Notification --Done
+ * 5.JS SDK Social Share -- Done, need revised
+ * 6.Group->Wechat User Group Mapping -- Done,seems apis have issues???
+ * 7.Identify new comer's parent/source -- Done, need more tests
+ * 8.wechat emotion conversion
+ * 9.aliyun redis test
  */
 
 "use strict";
@@ -15,6 +19,8 @@ var plugin = {},
 	request = module.parent.require('request'),
 	meta = module.parent.require('./meta'),
 	async = module.parent.require('async'),
+	fs = module.parent.require('fs'),
+	mime = module.parent.require('mime'),
 	S = module.parent.require('string'),
 	user = module.parent.require('./user'),
 	categories = module.parent.require('./categories'),
@@ -1081,6 +1087,23 @@ plugin.groupDestroied = function(groupObj){
 	if (!groupObj.name.startsWith('wx')) return;
 	findWXGroupId(groupObj.name,function(err,groupId){
 		if (groupId) wechatapi.removeGroup(groupId,dullFunc);
+	});
+}
+
+plugin.uploadImage = function(params,callback){
+	plugin.uploadFile({file:params.image,uid:params.uid},callback);
+}
+
+plugin.uploadFile = function(params,callback){
+	var uploadedFile = params.file;
+	fs.readFile(uploadedFile.path, function(err, data) {
+		if(err) return callback(err);
+		var mimeType = mime.lookup(uploadedFile.path);
+		var filename = uploadedFile.name || 'upload';
+		avcloud.uploadFile(filename,mimeType,data,function(err,data){
+			if(err) return callback(err);
+			callback(null,{url:data.url,name:filename});
+		});
 	});
 }
 

@@ -15,6 +15,8 @@
         { "hook": "action:group.destroy", "method": "groupDestroied" },
         { "hook": "action:group.join", "method": "joinGroup" },
         { "hook": "action:group.leave", "method": "leaveGroup" },
+        { "hook": "filter:uploadImage", "method": "uploadImage" },
+        { "hook": "filter:uploadFile", "method": "uploadFile" },
         { "hook": "filter:admin.header.build", "method": "addMenuItem" }
     ],
     "staticDirs": {
