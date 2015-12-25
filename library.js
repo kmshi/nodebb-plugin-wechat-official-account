@@ -1,7 +1,7 @@
 /**
  * Created by kshi on 10/13/15.
  * TODO List:
- * 1.file upload plugin to leancloud/qiniu cloud -- Done, need test, seems nginx has 1M size limit???
+ * 1.file upload plugin to leancloud/qiniu cloud -- Done, need test, seems nginx has 1M size limit(client_max_body_size 10m;)
  * 2.New Topic UI, wechat version and web version; wechat fast login button + other login button
  * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx --Done
  * 4.Notification --Done
@@ -341,8 +341,19 @@ function _authCheck(req, res, next){
 		if (err) return res.reply(err);
 		if (uid){
 			req.wxsession.user = {uid:uid};
+			next();
+		}else{
+			if (nconf.get("wechat:autoRegister")){
+				loginByOpenid(openid,function(err,user){
+					if (err) return res.reply(err);
+					req.wxsession.user = user;
+					next();
+				});
+			}else{
+				next();
+			}
 		}
-		next();
+
 	});
 }
 
@@ -808,6 +819,7 @@ plugin.load = function(params, callback) {
 			'    "appid": "",' + '\n' +
 			'    "appsecret": "",' + '\n' +
 			'    "allowAuth": true,' + '\n' +
+			'    "autoRegister": false,' + '\n' +
 			'    "openid": "",' + '\n' +
 			'    "token": "",' + '\n' +
 			'    "encodingAESKey": "",' + '\n' +
@@ -864,11 +876,14 @@ plugin.load = function(params, callback) {
 };
 
 plugin.userDelete = function(uid,callback){
-	callback = callback || function() {};
+	callback = callback || dullFunc;
 	db.getObject('openid:uid',function(err,obj){
 		if (err) return callback(err);
 		for (var openid in obj){
-			if (obj[openid]===uid) db.deleteObjectField('openid:uid', openid);
+			if (obj[openid]===uid){
+				db.delete("sess:"+openid+":"+nconf.get("wechat:openid"));//remove wxsession too
+				db.deleteObjectField('openid:uid', openid);
+			}
 		}
 		db.getObject('unionid:uid',function(err,obj){
 			if (err) return callback(err);
@@ -882,18 +897,26 @@ plugin.userDelete = function(uid,callback){
 
 plugin.getStrategy = function(strategies, callback){
 	if(nconf.get("wechat:allowAuth")){
+		var configData = {
+			appID: nconf.get("wechat:appid"),
+			appSecret:nconf.get("wechat:appsecret"),
+			client:'wechat',
+			callbackURL: nconf.get('url') + '/auth/wechat/callback',
+			scope: "snsapi_userinfo",//"snsapi_base"
+			state:1
+		};
+
+		if (nconf.get("wechat:autoRegister")) configData.scope = "snsapi_base";
+
 		passport.use(
 			"wechat",
-			new passportWechat({
-					appID: nconf.get("wechat:appid"),
-					appSecret:nconf.get("wechat:appsecret"),
-					client:'wechat',
-					callbackURL: nconf.get('url') + '/auth/wechat/callback',
-					scope: "snsapi_userinfo",//"snsapi_base"
-					state:1
-				},
+			new passportWechat(configData,
 				function(accessToken, refreshToken, profile, done) {
-					login(profile,false,done);//loginByOpenid(profile.openid,done);
+					if (nconf.get("wechat:autoRegister")){
+						loginByOpenid(profile.openid,done);
+					}else{
+						login(profile,false,done);
+					}
 				})
 		);
 		strategies.push({
