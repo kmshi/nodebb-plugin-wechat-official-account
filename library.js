@@ -8,8 +8,10 @@
  * 5.JS SDK Social Share -- Done, need revised
  * 6.Group->Wechat User Group Mapping -- Done,seems apis have issues???
  * 7.Identify new comer's parent/source -- Done, need more tests
- * 8.wechat emotion conversion
- * 9.aliyun redis test
+ * 8.wechat emotion conversion ####
+ * 9.aliyun redis test  #####
+ * 10.chat by @ in wechat ####
+ * 11.直播  ###
  */
 
 "use strict";
@@ -703,7 +705,7 @@ plugin.userLoggedIn = function(params){
 		var bindedOpenid = xopenid || openid;
 		if (bindedOpenid){
 			db.get("sess:"+bindedOpenid+":"+nconf.get("wechat:openid"),function(err,str){
-				if (err) return;
+				if (err || !str) return;
 				var wxsession = JSON.parse(str);
 				parentUid = wxsession.parentUid || parentUid;
 				if (parentUid){
