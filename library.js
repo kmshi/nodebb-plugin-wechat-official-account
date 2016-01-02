@@ -386,8 +386,9 @@ function wechatInputHandler(req, res, next){
 	var message = req.weixin;
 	console.dir(message);
 
-	if (message.MsgType==="event" && message.Event==="SCAN" && message.Ticket){
+	if (message.MsgType==="event" && (message.Event==="SCAN" || message.Event==="subscribe") && message.Ticket){
 		if (req.wxsession.ticket !== message.Ticket && !req.wxsession.parentUid){
+			if (message.EventKey.startsWith('qrscene_')) message.EventKey = message.EventKey.substring(8,message.EventKey.length);
 			req.wxsession.parentUid = parseInt(message.EventKey,10);//equals to scene_id/scene_str, we can set to uid
 		}
 	}
@@ -569,7 +570,7 @@ var constantsApp = Object.freeze({
 	}
 });
 
-
+//@deprecated
 function redirect_weixin_oauth(req,res,onlyOpenId){
 	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
 	var state = (onlyOpenId==true?"0":"1");
@@ -585,13 +586,13 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	res.redirect(path+str+"#wechat_redirect");
 	//for website, use "https://open.weixin.qq.com/connect/qrconnect?" and "snsapi_login" scope.
 }
-
+//@deprecated
 function setCookieMaxAge(req){
 	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
 	req.session.cookie.maxAge = duration;
 	req.session.cookie.expires = new Date(Date.now() + duration);
 }
-
+//@deprecated
 function wechatAuth(req, res, next) {
 	if (req.query && req.query.parentUid) req.session._parentUid = parseInt(req.query.parentUid,10);
 	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
@@ -871,9 +872,13 @@ plugin.load = function(params, callback) {
 	}
 	router.use('/wechat',wechat(config,wechatInputHandler));
 
-	if(nconf.get("wechat:allowAuth")){
-		router.use('/',wechatAuth);
-	}
+	router.use('/',function(req,res,next){
+		if (req.query && req.query.parentUid) req.session._parentUid = parseInt(req.query.parentUid,10);
+		res.locals.config = res.locals.config ||{};
+		res.locals.config.allowWeChatAuth = (nconf.get("wechat:allowAuth")===true);
+		next();
+	});
+
 	callback();
 };
 

@@ -49,21 +49,30 @@ $(document).ready(function() {
 	var origUrl = window.location.href.split('#')[0];
 	var sheet = document.createElement('style');
 	sheet.type = "text/css";
+	if (isWeChat && config.allowWeChatAuth){
+		sheet.innerHTML = ".visible-wx {display:block;} .hidden-wx {display:none;}";
+	}else{
+		sheet.innerHTML = ".visible-wx {display:none;} .hidden-wx {display:block;}";
+	}
+	sheet.innerHTML = sheet.innerHTML + "  li.wechat {display:none;}";
+	if (isWeChat){
+		sheet.innerHTML = sheet.innerHTML + "  li.wechatweb {display:none;}";
+	}
+	document.head.appendChild(sheet);
+
 	if (isWeChat){
 		$(window).on('action:ajaxify.end', function() {
 			//funny,you have to config everytime but with old url when history pushstate changes
 			if (isWeChat) configureWeChat(origUrl);
 		});
-		sheet.innerHTML = ".visible-wx {display:block;} .hidden-wx {display:none;}";
 	}else {
 		window.wx = {};
 		var nullFunc = function(){};
 		for(var idx in jsApiList){
 			window.wx[jsApiList[idx]]=nullFunc;
 		}
-		sheet.innerHTML = ".visible-wx {display:none;} .hidden-wx {display:block;}";
 	}
-	document.head.appendChild(sheet);
+
 
 	$(document).on('click',"div[data-type='location']",function(){
 		var x = parseFloat($(this).attr('data-x'));
