@@ -25,6 +25,7 @@ var plugin = {},
 	mime = module.parent.require('mime'),
 	S = module.parent.require('string'),
 	user = module.parent.require('./user'),
+	socketUser = module.parent.require('./socket.io/user'),
 	categories = module.parent.require('./categories'),
 	topics = module.parent.require('./topics'),
 	posts = module.parent.require('./posts'),
@@ -48,8 +49,13 @@ var dullFunc = function(err){if(err)console.dir(err);};
 List.add('bind', [
 	['闪发秒回需先绑定微信,请'],
 	['回复{1}直接使用微信登录并绑定微信', function (req, res, next) {
-		loginByOpenid(req.weixin.FromUserName,function(err,user){
+		loginByOpenid(req.weixin.FromUserName,function(err,userInfo){
 			if (err) return res.nowait(err);
+			if (req.wxsession.parentUid){
+				user.setUserFields(userInfo.uid,{parentUid:req.wxsession.parentUid},dullFunc);
+				socketUser.follow({uid:req.wxsession.parentUid},{uid:userInfo.uid},dullFunc);
+				socketUser.follow({uid:userInfo.uid},{uid:req.wxsession.parentUid},dullFunc);
+			}
 			res.nowait("登录并绑定成功,可以闪发秒回了.");
 		});
 	}],
@@ -346,9 +352,14 @@ function _authCheck(req, res, next){
 			next();
 		}else{
 			if (nconf.get("wechat:autoRegister")){
-				loginByOpenid(openid,function(err,user){
+				loginByOpenid(openid,function(err,userInfo){
 					if (err) return res.reply(err);
-					req.wxsession.user = user;
+					req.wxsession.user = userInfo;
+					if (req.wxsession.parentUid){
+						user.setUserFields(userInfo.uid,{parentUid:req.wxsession.parentUid},dullFunc);
+						socketUser.follow({uid:req.wxsession.parentUid},{uid:userInfo.uid},dullFunc);
+						socketUser.follow({uid:userInfo.uid},{uid:req.wxsession.parentUid},dullFunc);
+					}
 					next();
 				});
 			}else{
@@ -711,15 +722,15 @@ plugin.userLoggedIn = function(params){
 				parentUid = wxsession.parentUid || parentUid;
 				if (parentUid){
 					user.setUserFields(uid,{parentUid:parentUid},dullFunc);
-					user.follow(parentUid,uid,dullFunc);
-					user.follow(uid,parentUid,dullFunc);
+					socketUser.follow({uid:parentUid},{uid:uid},dullFunc);
+					socketUser.follow({uid:uid},{uid:parentUid},dullFunc);
 				}
 			});
 		}else{
 			if (parentUid){
 				user.setUserFields(uid,{parentUid:parentUid},dullFunc);
-				user.follow(parentUid,uid,dullFunc);
-				user.follow(uid,parentUid,dullFunc);
+				socketUser.follow({uid:parentUid},{uid:uid},dullFunc);
+				socketUser.follow({uid:uid},{uid:parentUid},dullFunc);
 			}
 		}
 	});
