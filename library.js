@@ -581,7 +581,7 @@ var constantsApp = Object.freeze({
 	}
 });
 
-//@deprecated
+
 function redirect_weixin_oauth(req,res,onlyOpenId){
 	var scope = (onlyOpenId==true?"snsapi_base":"snsapi_userinfo");
 	var state = (onlyOpenId==true?"0":"1");
@@ -597,15 +597,14 @@ function redirect_weixin_oauth(req,res,onlyOpenId){
 	res.redirect(path+str+"#wechat_redirect");
 	//for website, use "https://open.weixin.qq.com/connect/qrconnect?" and "snsapi_login" scope.
 }
-//@deprecated
+
 function setCookieMaxAge(req){
 	var duration = 1000*60*60*24*parseInt(meta.config.loginDays || 14, 10);
 	req.session.cookie.maxAge = duration;
 	req.session.cookie.expires = new Date(Date.now() + duration);
 }
-//@deprecated
+
 function wechatAuth(req, res, next) {
-	if (req.query && req.query.parentUid) req.session._parentUid = parseInt(req.query.parentUid,10);
 	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
 
@@ -887,7 +886,11 @@ plugin.load = function(params, callback) {
 		if (req.query && req.query.parentUid) req.session._parentUid = parseInt(req.query.parentUid,10);
 		res.locals.config = res.locals.config ||{};
 		res.locals.config.allowWeChatAuth = (nconf.get("wechat:allowAuth")===true);
-		next();
+		if (nconf.get("wechat:allowAuth")){
+			wechatAuth(req, res, next);
+		}else{
+			next();
+		}
 	});
 
 	callback();
