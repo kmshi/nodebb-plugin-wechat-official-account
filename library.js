@@ -1,8 +1,8 @@
 /**
  * Created by kshi on 10/13/15.
- * TODO List:
+ * Features List:
  * 1.file upload plugin to leancloud/qiniu cloud -- Done, need test, seems nginx has 1M size limit(client_max_body_size 10m;)
- * 2.New Topic UI, wechat version and web version; wechat fast login button + other login button
+ * 2.New Topic UI, wechat version and web version; wechat fast login button + other login button -- Done
  * 3.Fast Post, wxsession and list wait/nowait, ask user to click a link: /wxBind?openid=xxx --Done
  * 4.Notification --Done
  * 5.JS SDK Social Share -- Done, need revised
@@ -12,6 +12,7 @@
  * 9.aliyun redis test  #####
  * 10.chat by @ in wechat ####
  * 11.直播  ###
+ * 12.add headimg to qrcode image  -- Done
  */
 
 "use strict";
@@ -22,6 +23,7 @@ var plugin = {},
 	meta = module.parent.require('./meta'),
 	async = module.parent.require('async'),
 	fs = module.parent.require('fs'),
+	lwip = module.parent.require('lwip'),
 	mime = module.parent.require('mime'),
 	S = module.parent.require('string'),
 	user = module.parent.require('./user'),
@@ -458,28 +460,60 @@ function wechatInputHandler(req, res, next){
 			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="SHOW_QRCODE"){
 				return getOrCreateQRCodeTicket(uid,req,function(err,ticket){
 					if(err) return res.reply(err);
-					var filename = "/tmp/qrcode.jpg";
-					request.get(wechatapi.showQRCodeURL(ticket))
-						.on('error', function(err) {
-							res.reply(err);
-						})
-						.pipe(require('fs').createWriteStream(filename))
-						.on('close', function(err) {
-							if (err) {
-								return res.reply(err);
-							}
-							uploadMedia(filename,'image',function(err,result){
-								if (err) {
-									return res.reply(err);
-								}
-								res.reply({
-									type: "image",
-									content: {
-										mediaId: result.media_id
+					async.waterfall([
+						function(next) {
+							var filename = "/tmp/qrcode.jpg";
+							request.get(wechatapi.showQRCodeURL(ticket))
+								.on('error', function(err) {
+									next(err);
+								})
+								.pipe(require('fs').createWriteStream(filename))
+								.on('close', function(err) {
+									if (err) return next(err);
+									lwip.open(filename, next);
+								});
+						},
+						function(qrImage, next) {
+							var filename = "/tmp/header.jpg";
+							user.getUserField(uid, "picture", function(err, picUrl){
+								if (err) return next(err);
+								request.get(picUrl)
+									.on('error', function(err) {
+										next(err);
+									})
+									.pipe(require('fs').createWriteStream(filename))
+									.on('close', function(err) {
+										if (err) return next(err);
+										lwip.open(filename, function(err,headerImage){
+											next(err,qrImage,headerImage);
+										});
+									});
+							});
+						},
+						function(qrImage,headerImage,next){
+							qrImage.paste(151,151,headerImage,next);
+						},
+						function(qrImage, next) {
+							var filename = "/tmp/qrcode.jpg";
+							qrImage.writeFile(filename, function(err){
+								uploadMedia(filename,'image',function(err,result){
+									if (err) {
+										return next(err);
 									}
+									res.reply({
+										type: "image",
+										content: {
+											mediaId: result.media_id
+										}
+									});
 								});
 							});
-						});
+						}
+					],function(err){
+						if (err) {
+							return res.reply(err);
+						}
+					});
 				});
 			}else{
 				return res.reply();
