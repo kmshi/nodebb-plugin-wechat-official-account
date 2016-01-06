@@ -2,7 +2,6 @@
 
 /*globals ajaxify, config, utils, NProgress*/
 
-var jsApiList = ['getNetworkType','openLocation','hideOptionMenu','onMenuShareAppMessage'];
 
 function configureWeChat(path){
 	$.ajax({
@@ -10,6 +9,10 @@ function configureWeChat(path){
 		cache: false,
 		success: function(data) {
 			data.debug = false;
+			var jsApiList = ['getNetworkType','openLocation','hideOptionMenu'];
+			if (config.allowWeChatAuth){
+				jsApiList.push('onMenuShareAppMessage','onMenuShareTimeline');
+			}
 			data.jsApiList = jsApiList;
 			//alert(JSON.stringify(data));
 			wx.config(data);
@@ -19,19 +22,21 @@ function configureWeChat(path){
 				var desc = ajaxify.data.description || (ajaxify.data.posts && ajaxify.data.posts[0].content) || $("meta[name='description']").attr("content");
 				var link = window.location.href+"?parentUid="+app.user.uid;
 				var imgUrl = ($("img:not(.hide):not(.user-img)")[0] && $("img:not(.hide):not(.user-img)")[0].src)||'';
-				wx.onMenuShareAppMessage({
-					title:title,
-					desc:desc,
-					link:link,
-					imgUrl:imgUrl,
-					type:'link',
-					dataUrl:''
-				});
-				wx.onMenuShareTimeline({
-					title:title,
-					link:link,
-					imgUrl:imgUrl
-				});
+				if (config.allowWeChatAuth){
+					wx.onMenuShareAppMessage({
+						title:title,
+						desc:desc,
+						link:link,
+						imgUrl:imgUrl,
+						type:'link',
+						dataUrl:''
+					});
+					wx.onMenuShareTimeline({
+						title:title,
+						link:link,
+						imgUrl:imgUrl
+					});
+				}
 			});
 			wx.error(function(err){
 				alert(JSON.stringify(err));

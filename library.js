@@ -48,9 +48,12 @@ var wechatapi = new API(nconf.get("wechat:appid"),nconf.get("wechat:appsecret"))
 var List = wechat.List;
 var dullFunc = function(err){if(err)console.dir(err);};
 
-List.add('bind', [
+var bindOptions = [
 	['闪发秒回需先绑定微信,请'],
-	['回复{1}直接使用微信登录并绑定微信', function (req, res, next) {
+	['回复{1}使用其他帐号登录并绑定微信', function (req, res, next) {
+		res.nowait("<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>请点击打开登录页面</a>");
+	}],
+	['回复{2}直接使用微信登录并绑定微信', function (req, res, next) {
 		loginByOpenid(req.weixin.FromUserName,function(err,userInfo){
 			if (err) return res.nowait(err);
 			if (req.wxsession.parentUid){
@@ -60,11 +63,10 @@ List.add('bind', [
 			}
 			res.nowait("登录并绑定成功,可以闪发秒回了.");
 		});
-	}],
-	['回复{2}使用其他已有帐号登录并绑定微信', function (req, res, next) {
-		res.nowait("<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>请点击打开登录页面</a>");
 	}]
-]);
+];
+if (!nconf.get("wechat:allowAuth")) {bindOptions.splice(2,1);}
+List.add('bind', bindOptions);
 
 function login(userInfo,isWeb,callback){
 	copyRemoteToCloud(userInfo.headimgurl,function(err,url){
@@ -407,6 +409,10 @@ function wechatInputHandler(req, res, next){
 	}
 
 	_authCheck(req, res, function(){
+		if (message.Event==="subscribe"){
+			return res.reply('欢迎加入有爱的营养俱乐部,您可以直接在微信内发帖回贴--点击"闪发秒回"菜单');
+		}
+
 		if (req.wxsession.user){
 			var uid = req.wxsession.user.uid;
 			var openid = message.FromUserName;
@@ -638,35 +644,37 @@ function setCookieMaxAge(req){
 	req.session.cookie.expires = new Date(Date.now() + duration);
 }
 
-function wechatAuth(req, res, next) {
-	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()|| req.session._openid || req.session._wechatAuthed) return next();
+function retrieveOpenId(req,res,callback){
+	if (req.session._openid) return callback(null,req.session._openid);
 	if (!req.query || !req.query.code) return redirect_weixin_oauth(req,res,true);
-
 	var path = "https://api.weixin.qq.com/sns/oauth2/access_token?";
 	var str = querystring.stringify({appid:nconf.get("wechat:appid"),secret:nconf.get("wechat:appsecret"),code:req.query.code,grant_type:"authorization_code"});
-	req.session._wechatAuthed = 1;
 
 	rest.json(path+str,{}).on("success",function(authData) {
 		authData = JSON.parse(authData);
 		if (authData.errcode) {
-			//ignore the error
-			return next();
+			return callback(authData.errcode);
 		}
 		req.session._openid = authData.openid;
-		db.getObjectField('openid:uid', authData.openid, function(err, uid) {
-			if (err) {
-				return next();
-			}
-			if (uid){
+		callback(null,req.session._openid);
+	}).on("error",function(err){
+		callback(err);
+	});
+}
+
+function wechatAuth(req, res, next) {
+	if ((req.headers['user-agent']||'').toLowerCase().indexOf('micromessenger')===-1 || req.isAuthenticated()) return next();
+	retrieveOpenId(req,res,function(err,openid){
+		if (err) return next();
+		db.getObjectField('openid:uid', openid, function(err, uid) {
+			if (!err && uid){
 				//setCookieMaxAge(req);
-				req.login({uid: uid}, next);
+				req.uid = uid;
+				req.login({uid: uid+''}, next);
 			}else{
 				next();
 			}
 		});
-	}).on("error",function(err){
-		//ignore the error
-		next();
 	});
 }
 
@@ -698,8 +706,12 @@ function wechatJSConfig(req,res){
 function wxBind(req,res){
 	var openid = req.query.openid;
 	if(openid) req.session._openid = openid;
-	delete req.session._wechatAuthed;
-	res.redirect(nconf.get('relative_path')+"/login");
+	if (req.isAuthenticated()){
+		plugin.userLoggedIn({uid:req.uid,req:req,res:res});
+		res.redirect(nconf.get('relative_path')+"/recent");
+	}else{
+		res.redirect(nconf.get('relative_path')+"/login");
+	}
 }
 
 var _globalQRCodeTicket;
@@ -733,16 +745,13 @@ plugin.userLoggedIn = function(params){
 	var uid = params.uid;
 	var openid = params.req.session._openid;
 	var parentUid = params.req.session._parentUid;
-	var wechatAuthed = params.req.session._wechatAuthed;
-	delete params.req.session._openid;
-	delete params.req.session._parentUid;
-	delete params.req.session._wechatAuthed;
+
 	user.getUserField(uid, "openid", function(err, xopenid) {
 		if (openid){
 			//if user is already assocaited
-			if (err || xopenid) return sendText(openid,"绑定错误,或者账号已绑定其他微信号");
+			if (err || xopenid!==openid) return sendText(openid,"绑定错误,或者账号已绑定其他微信号");
 			bindUser2Wechat(uid,openid,function(err){
-				if (!err && !wechatAuthed){
+				if (!err){
 					sendText(openid,"绑定成功,可以闪发秒回了");
 				}
 			});
