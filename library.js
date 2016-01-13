@@ -410,7 +410,11 @@ function wechatInputHandler(req, res, next){
 
 	_authCheck(req, res, function(){
 		if (message.Event==="subscribe"){
-			return res.reply('欢迎加入有爱的营养俱乐部,您可以直接在微信内发帖回贴--点击"闪发秒回"菜单');
+			if (nconf.get("wechat:allowAuth")){
+				return res.reply('欢迎加入有爱的营养俱乐部,您可以直接在微信内发帖回贴--点击"闪发秒回"菜单');
+			}else{
+				return res.reply("请点击进入<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>空中俱乐部</a>,或者输入'闪发'来快速发贴,输入'秒回'来快速回贴");
+			}
 		}
 
 		if (req.wxsession.user){
@@ -449,11 +453,11 @@ function wechatInputHandler(req, res, next){
 				}else{
 					return res.reply('请输入标题');
 				}
-			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_POST"){
+			}else if ((message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_POST")||message.Content==="闪发"){
 				req.wxsession.fastPost = {content:[],isNew:true};
 				delete req.wxsession._wait;
 				return res.reply('请输入标题');
-			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_REPLY"){
+			}else if ((message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="FAST_REPLY")||message.Content==="秒回"){
 				req.wxsession.fastPost = {content:[],title:"Not needed",isNew:false};
 				delete req.wxsession._wait;
 				return showTopicListForUser(openid,req.wxsession.topics||[],function(){
@@ -526,9 +530,9 @@ function wechatInputHandler(req, res, next){
 				//return res.transfer2CustomerService(kfAccount);
 			}
 		} else{
-			if (message.Event==="CLICK" && message.EventKey==="FAST_POST"){
+			if ((message.Event==="CLICK" && message.EventKey==="FAST_POST")||message.Content==="闪发"){
 				return res.wait('bind');
-			}else if (message.Event==="CLICK" && message.EventKey==="FAST_REPLY"){
+			}else if ((message.Event==="CLICK" && message.EventKey==="FAST_REPLY")||message.Content==="秒回"){
 				return res.wait('bind');
 			}else{
 				return res.reply();
