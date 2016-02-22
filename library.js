@@ -596,9 +596,24 @@ function sendText(openid,text,callback){
 
 function sendNews(openid,payload,callback){
 	callback = callback || dullFunc;
-	wechatapi.sendNews(openid,payload,function(err,result){
-		callback(err,result);
-	});
+	var templateId = nconf.get("wechat:notify_template_id");
+	if (!templateId){
+		wechatapi.sendNews(openid,payload,function(err,result){
+			callback(err,result);
+		});
+	}else{
+		var topcolor = '#FF0000';
+		var data = {
+			first:{value:payload[0].description,color:"#173177"},
+			keyword1:{value:"1",color:"#173177"},
+			keyword2:{value:payload[0].username,color:"#173177"},
+			keyword3:{value:(new Date()).toLocaleTimeString(),color:"#173177"},
+			remark:{value:payload[0].title,color:"#173177"}
+		};
+		wechatapi.sendTemplate(openid,templateId,payload[0].url,topcolor,data,function(err,result){
+			callback(err,result);
+		});
+	}
 }
 
 function getJsConfig(data,callback){
@@ -1096,6 +1111,7 @@ plugin.notificationPushed = function(params){
 					});
 				},
 				pic:async.apply(user.getUserField,notifObj.from,'picture'),
+				username:async.apply(user.getUserField,notifObj.from,'username'),
 				topicTitle: async.apply(topics.getTopicFieldByPid, 'title', notifObj.pid),
 				topicSlug: async.apply(topics.getTopicFieldByPid, 'slug', notifObj.pid)
 			}, next);
@@ -1105,6 +1121,7 @@ plugin.notificationPushed = function(params){
 			var	payload = [
 				{
 					title:data.title,
+					username:data.username,
 					description:notifObj.bodyLong
 				}
 			];
