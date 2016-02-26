@@ -1,0 +1,64 @@
+{
+  "button":[
+    {
+      "name":"营养俱乐部",
+      "sub_button":[
+        {
+          "type": "view",
+          "name": "最新热帖",
+          "url":"http://club.haxejs.com/recent",
+          "sub_button": [ ]
+        },
+        {
+          "type": "view",
+          "name": "各地俱乐部",
+          "url":"http://club.haxejs.com/",
+          "sub_button": [ ]
+        },
+        {
+          "type": "click",
+          "name": "我的二维码",
+          "key":"SHOW_QRCODE",
+          "sub_button": [ ]
+        }
+      ]
+    },
+    {
+        "name": "闪发秒回",
+        "sub_button": [
+            {
+                "type": "click",
+                "name": "快速发帖",
+                "key":"FAST_POST",
+                "sub_button": [ ]
+            },
+          {
+            "type": "click",
+            "name": "快速回帖",
+            "key":"FAST_REPLY",
+            "sub_button": [ ]
+          }
+        ]
+    },
+    {
+      "name": "我的康宝莱",
+      "sub_button": [
+        {
+          "type": "view",
+          "name": "康宝莱微官网",
+          "url":"http://www.herbalifeexpress.cn/",
+          "sub_button": [ ]
+        },
+        {
+          "type": "view",
+          "name": "最新资讯",
+          "url":"https://mp.weixin.qq.com/mp/getmasssendmsg?__biz=MzA3MjMyMTcwNQ==&uin=MjQ4ODc4MjIwMA%3D%3D&key=62bb001fdbc364e5da6e881c560d664a6bd568177105d1682c3c9df6624254d22e4bfd7f6a7f28a36c95c5730f052dca&devicetype=webwx&version=70000001&lang=zh_CN&pass_ticket=7D9dJXOnonQR%2FhirPsc7TJIpOFbq4g8dcy3FALtPL0Qzr0268FwjUDRK1g4jAdxE#wechat_webview_type=1",
+          "sub_button": [ ]
+        }
+      ]
+    }
+  ],
+  "matchrule":{
+     "group_id":"101"
+  }
+}
