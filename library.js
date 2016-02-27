@@ -56,6 +56,7 @@ var bindOptions = [
 	['回复{2}直接使用微信登录并绑定微信', function (req, res, next) {
 		loginByOpenid(req.weixin.FromUserName,function(err,userInfo){
 			if (err) return res.nowait(err);
+			req.wxsession.parentUid = req.wxsession.parentUid || nconf.get("wechat:defaultParentUid") || 1;
 			if (req.wxsession.parentUid){
 				user.setUserFields(userInfo.uid,{parentUid:req.wxsession.parentUid},dullFunc);
 				socketUser.follow({uid:req.wxsession.parentUid},{uid:userInfo.uid},dullFunc);
@@ -359,6 +360,7 @@ function _authCheck(req, res, next){
 				loginByOpenid(openid,function(err,userInfo){
 					if (err) return res.reply(err);
 					req.wxsession.user = userInfo;
+					req.wxsession.parentUid = req.wxsession.parentUid || nconf.get("wechat:defaultParentUid") || 1;
 					if (req.wxsession.parentUid){
 						user.setUserFields(userInfo.uid,{parentUid:req.wxsession.parentUid},dullFunc);
 						socketUser.follow({uid:req.wxsession.parentUid},{uid:userInfo.uid},dullFunc);
@@ -411,7 +413,7 @@ function wechatInputHandler(req, res, next){
 	_authCheck(req, res, function(){
 		if (message.Event==="subscribe"){
 			if (nconf.get("wechat:allowAuth")){
-				return res.reply('欢迎加入有爱的营养俱乐部,您可以直接在微信内发帖回贴--点击"闪发秒回"菜单');
+				return res.reply(nconf.get("wechat:banner"));
 			}else{
 				return res.reply("请点击进入<a href='"+nconf.get('url')+"/wxBind?openid="+req.weixin.FromUserName+"'>空中俱乐部</a>,或者输入'闪发'来快速发贴,输入'秒回'来快速回贴");
 			}
@@ -487,7 +489,7 @@ function wechatInputHandler(req, res, next){
 							var filename = "/tmp/header.jpg";
 							user.getUserField(uid, "picture", function(err, picUrl){
 								if (err) return next(err);
-								request.get(picUrl)
+								request.get(picUrl+"?imageView/2/w/128/h/128")
 									.on('error', function(err) {
 										next(err);
 									})
@@ -763,7 +765,7 @@ function showQRCode(req,res){
 plugin.userLoggedIn = function(params){
 	var uid = params.uid;
 	var openid = params.req.session._openid;
-	var parentUid = params.req.session._parentUid;
+	var parentUid = params.req.session._parentUid || nconf.get("wechat:defaultParentUid") || 1;
 
 	user.getUserField(uid, "openid", function(err, xopenid) {
 		if (openid){

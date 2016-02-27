@@ -1,7 +1,7 @@
 "use strict";
 
 /*globals ajaxify, config, utils, NProgress*/
-
+var jsApiList = ['getNetworkType','openLocation','hideOptionMenu'];
 
 function configureWeChat(path){
 	$.ajax({
@@ -9,7 +9,6 @@ function configureWeChat(path){
 		cache: false,
 		success: function(data) {
 			data.debug = false;
-			var jsApiList = ['getNetworkType','openLocation','hideOptionMenu'];
 			if (config.allowWeChatAuth){
 				jsApiList.push('onMenuShareAppMessage','onMenuShareTimeline');
 			}
