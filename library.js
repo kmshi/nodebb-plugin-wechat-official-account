@@ -532,8 +532,8 @@ function wechatInputHandler(req, res, next){
 					});
 				});
 			}else{
-				return res.reply();
-				//return res.transfer2CustomerService(kfAccount);
+				if (!nconf.get("wechat:KfAccount")) return res.reply();
+				if (nconf.get("wechat:KfAccount")) return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
 			}
 		} else{
 			if ((message.Event==="CLICK" && message.EventKey==="FAST_POST")||message.Content==="闪发"){
@@ -541,8 +541,8 @@ function wechatInputHandler(req, res, next){
 			}else if ((message.Event==="CLICK" && message.EventKey==="FAST_REPLY")||message.Content==="秒回"){
 				return res.wait('bind');
 			}else{
-				return res.reply();
-				//return res.transfer2CustomerService(kfAccount);
+				if (!nconf.get("wechat:KfAccount")) return res.reply();
+				if (nconf.get("wechat:KfAccount")) return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
 			}
 		}
 	});
