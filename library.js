@@ -472,21 +472,23 @@ function wechatInputHandler(req, res, next){
 			}else if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="SHOW_QRCODE"){
 				return getOrCreateQRCodeTicket(uid,req,function(err,ticket){
 					if(err) return res.reply(err);
+					var extra = Math.floor((1+Math.random())*0x10000).toString(16);
 					async.waterfall([
 						function(next) {
-							var filename = "/tmp/qrcode.jpg";
+							var filename = "/tmp/qrcode_" + extra + ".jpg";
 							request.get(wechatapi.showQRCodeURL(ticket))
 								.on('error', function(err) {
 									next(err);
 								})
 								.pipe(require('fs').createWriteStream(filename))
 								.on('close', function(err) {
+
 									if (err) return next(err);
 									lwip.open(filename, next);
 								});
 						},
 						function(qrImage, next) {
-							var filename = "/tmp/header.jpg";
+							var filename = "/tmp/header_" + extra + ".jpg";
 							user.getUserField(uid, "picture", function(err, picUrl){
 								if (err) return next(err);
 								request.get(picUrl+"?imageView/2/w/128/h/128")
@@ -497,6 +499,7 @@ function wechatInputHandler(req, res, next){
 									.on('close', function(err) {
 										if (err) return next(err);
 										lwip.open(filename, function(err,headerImage){
+											require('fs').unlink(filename);
 											next(err,qrImage,headerImage);
 										});
 									});
@@ -506,9 +509,10 @@ function wechatInputHandler(req, res, next){
 							qrImage.paste(151,151,headerImage,next);
 						},
 						function(qrImage, next) {
-							var filename = "/tmp/qrcode.jpg";
+							var filename = "/tmp/qrcode_" + extra + ".jpg";
 							qrImage.writeFile(filename, function(err){
 								uploadMedia(filename,'image',function(err,result){
+									require('fs').unlink(filename);
 									if (err) {
 										return next(err);
 									}
@@ -738,7 +742,8 @@ function wxBind(req,res){
 var _globalQRCodeTicket;
 function getOrCreateGlobalQRCodeTicket(callback){
 	if (_globalQRCodeTicket) return callback(null,_globalQRCodeTicket);
-	_createQRCodeTicket(1,function(err,ticket){//use admin uid 1
+	var defaultParentUid = nconf.get("wechat:defaultParentUid") || 1;
+	_createQRCodeTicket(defaultParentUid,function(err,ticket){
 		_globalQRCodeTicket = ticket;
 		callback(err,_globalQRCodeTicket);
 	});
