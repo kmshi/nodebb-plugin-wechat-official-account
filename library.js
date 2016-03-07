@@ -410,6 +410,10 @@ function wechatInputHandler(req, res, next){
 		}
 	}
 
+	if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="CLUB_INTRO"){
+		return res.reply(require("./clubIntro.json"));
+	}
+
 	_authCheck(req, res, function(){
 		if (message.Event==="subscribe"){
 			if (nconf.get("wechat:allowAuth")){
@@ -532,8 +536,9 @@ function wechatInputHandler(req, res, next){
 					});
 				});
 			}else{
-				if (!nconf.get("wechat:KfAccount")) return res.reply();
-				if (nconf.get("wechat:KfAccount")) return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
+				if (nconf.get("wechat:KfAccount") && (message.MsgType==="text" || message.MsgType==="voice"))
+					return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
+				return res.reply();
 			}
 		} else{
 			if ((message.Event==="CLICK" && message.EventKey==="FAST_POST")||message.Content==="闪发"){
@@ -541,8 +546,9 @@ function wechatInputHandler(req, res, next){
 			}else if ((message.Event==="CLICK" && message.EventKey==="FAST_REPLY")||message.Content==="秒回"){
 				return res.wait('bind');
 			}else{
-				if (!nconf.get("wechat:KfAccount")) return res.reply();
-				if (nconf.get("wechat:KfAccount")) return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
+				if (nconf.get("wechat:KfAccount") && (message.MsgType==="text" || message.MsgType==="voice"))
+					return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
+				return res.reply();
 			}
 		}
 	});
