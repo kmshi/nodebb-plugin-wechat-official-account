@@ -216,14 +216,14 @@ function messages2Content(messages,callback){
 	var thumbs = [];
 	async.map(messages,function(message, next){
 		if (message.MsgType==='image') {
-			tags.push('image');
+			if(tags.indexOf('image')===-1) tags.push('image');
 			return extractImage(message,function(err,content,thumb){
 				thumbs.push(thumb);
 				next(err,content);
 			});
 		}
 		if (message.MsgType==='video'||message.MsgType==='shortvideo'){
-			tags.push('video');
+			if(tags.indexOf('video')===-1) tags.push('video');
 			return extractVideo(message,function(err,content,thumb){
 				thumbs.push(thumb);
 				next(err,content);
@@ -544,7 +544,7 @@ function wechatInputHandler(req, res, next){
 			}else{
 				if (nconf.get("wechat:KfAccount") && (message.MsgType==="text" || message.MsgType==="voice"))
 					return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
-				return res.reply();
+				return res.reply(require("./clubIntro.json"));
 			}
 		} else{
 			if ((message.Event==="CLICK" && message.EventKey==="FAST_POST")||message.Content==="闪发"){
@@ -554,7 +554,7 @@ function wechatInputHandler(req, res, next){
 			}else{
 				if (nconf.get("wechat:KfAccount") && (message.MsgType==="text" || message.MsgType==="voice"))
 					return res.transfer2CustomerService(nconf.get("wechat:KfAccount"));
-				return res.reply();
+				return res.reply(require("./clubIntro.json"));
 			}
 		}
 	});
