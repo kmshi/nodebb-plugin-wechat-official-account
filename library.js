@@ -413,6 +413,9 @@ function wechatInputHandler(req, res, next){
 	if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="CLUB_INTRO"){
 		return res.reply(require("./clubIntro.json"));
 	}
+	if (message.MsgType==="event" && message.Event==="CLICK" && message.EventKey==="LOSE_WEIGHT"){
+		return res.reply(require("./loseweight.json"));
+	}
 
 	_authCheck(req, res, function(){
 		if (message.Event==="subscribe"){
@@ -491,27 +494,30 @@ function wechatInputHandler(req, res, next){
 									lwip.open(filename, next);
 								});
 						},
-						function(qrImage, next) {
-							var filename = "/tmp/header_" + extra + ".jpg";
-							user.getUserField(uid, "picture", function(err, picUrl){
-								if (err) return next(err);
-								request.get(picUrl+"?imageView/2/w/128/h/128")
-									.on('error', function(err) {
-										next(err);
-									})
-									.pipe(require('fs').createWriteStream(filename))
-									.on('close', function(err) {
-										if (err) return next(err);
-										lwip.open(filename, function(err,headerImage){
-											require('fs').unlink(filename);
-											next(err,qrImage,headerImage);
-										});
-									});
-							});
-						},
-						function(qrImage,headerImage,next){
-							qrImage.paste(151,151,headerImage,next);
-						},
+						//function(qrImage, next) {
+						//	var filename = "/tmp/header_" + extra + ".jpg";
+						//	user.getUserField(uid, "picture", function(err, picUrl){
+						//		if (err) return next(err);
+						//		request.get(picUrl)
+						//			.on('error', function(err) {
+						//				next(err);
+						//			})
+						//			.pipe(require('fs').createWriteStream(filename))
+						//			.on('close', function(err) {
+						//				if (err) return next(err);
+						//				lwip.open(filename, function(err,headerImage){
+						//					require('fs').unlink(filename);
+						//					if (err) return next(err);
+						//					headerImage.resize(128,128,function(err,headerImage){
+						//						next(err,qrImage,headerImage);
+						//					});
+						//				});
+						//			});
+						//	});
+						//},
+						//function(qrImage,headerImage,next){
+						//	qrImage.paste(151,151,headerImage,next);
+						//},
 						function(qrImage, next) {
 							var filename = "/tmp/qrcode_" + extra + ".jpg";
 							qrImage.writeFile(filename, function(err){
